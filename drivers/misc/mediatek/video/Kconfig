@@ -3,3 +3,9 @@ config MTK_VIDEO
   default n
   help
     CONFIG_MTK_VIDEO
+
+config MTK_VIDEOX_CYNGN_LIVEDISPLAY
+	bool CONFIG_MTK_VIDEOX_CYNGN_LIVEDISPLAY
+	default n
+	help
+		Enable the RGB interface for color calibration.
