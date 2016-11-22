@@ -22,9 +22,9 @@
 #include "mtkfb_fence.h"
 #include "mtkfb_info.h"
 #include "epd_drv.h"
-#include "external_display.h"
+#include "mt6795/external_display.h"
 #include "extd_log.h"
-#include "extd_platform.h"
+#include "mt6795/extd_platform.h"
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~the static variable~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 static int epd_layer_num;

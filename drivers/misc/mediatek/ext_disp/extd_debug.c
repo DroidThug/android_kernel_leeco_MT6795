@@ -12,7 +12,7 @@
 #include "ddp_reg.h"
 #include "ddp_info.h"
 #include "extd_hdmi.h"
-#include "external_display.h"
+#include "mt6795/external_display.h"
 
 /*extern DDP_MODULE_DRIVER *ddp_modules_driver[DISP_MODULE_NUM];*/
 /* --------------------------------------------------------------------------- */
