@@ -3,8 +3,8 @@
 
 #include "extd_multi_control.h"
 #include "disp_drv_platform.h"
-#include "external_display.h"
-#include "extd_platform.h"
+#include "mt6795/external_display.h"
+#include "mt6795/extd_platform.h"
 #include "extd_log.h"
 #include "mtk_ovl.h"
 
