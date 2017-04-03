@@ -1,0 +1,4 @@
+boot/dts/x500.dtb
+kernel/vdso/vdso-offsets.h
+kernel/vdso/vdso.lds
+kernel/vmlinux.lds
