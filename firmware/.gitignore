@@ -4,3 +4,9 @@
 *.csp
 *.dsp
 ihex2fw
+synaptics/startup_fw_auo.img
+synaptics/startup_fw_auo.img.gen.S
+synaptics/startup_fw_boe.img
+synaptics/startup_fw_boe.img.gen.S
+synaptics/startup_fw_truly.img
+synaptics/startup_fw_truly.img.gen.S

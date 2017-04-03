@@ -1,0 +1,17 @@
+misc/mediatek/mach/mt6795/x500/dct/dct/inc/
+video/logo/clut_vga16.c
+video/logo/logo_blackfin_clut224.c
+video/logo/logo_blackfin_vga16.c
+video/logo/logo_dec_clut224.c
+video/logo/logo_linux_clut224.c
+video/logo/logo_linux_mono.c
+video/logo/logo_linux_vga16.c
+video/logo/logo_m32r_clut224.c
+video/logo/logo_mac_clut224.c
+video/logo/logo_parisc_clut224.c
+video/logo/logo_sgi_clut224.c
+video/logo/logo_spe_clut224.c
+video/logo/logo_sun_clut224.c
+video/logo/logo_superh_clut224.c
+video/logo/logo_superh_mono.c
+video/logo/logo_superh_vga16.c
