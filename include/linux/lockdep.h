@@ -155,6 +155,7 @@ struct lockdep_map {
 	int				cpu;
 	unsigned long			ip;
 #endif
+
 };
 
 static inline void lockdep_copy_map(struct lockdep_map *to,
@@ -279,6 +280,7 @@ extern void lockdep_on(void);
 extern void lockdep_init_map(struct lockdep_map *lock, const char *name,
 			     struct lock_class_key *key, int subclass);
 
+
 /*
  * To initialize a lockdep_map statically use this macro.
  * Note that _name must not be NULL.
@@ -375,6 +377,7 @@ static inline void lockdep_on(void)
 {
 }
 
+
 # define lock_acquire(l, s, t, r, c, n, i)	do { } while (0)
 # define lock_release(l, n, i)			do { } while (0)
 # define lock_set_class(l, n, k, s, i)		do { } while (0)
@@ -423,6 +426,21 @@ struct lock_class_key { };
 extern void lock_contended(struct lockdep_map *lock, unsigned long ip);
 extern void lock_acquired(struct lockdep_map *lock, unsigned long ip);
 
+#if defined(CONFIG_PREEMPT_MONITOR) && defined(CONFIG_DEBUG_SPINLOCK)
+extern void MT_trace_raw_spin_lock_s(void *owner);
+extern void MT_trace_raw_spin_lock_e(void *owner);
+
+#define LOCK_CONTENDED(_lock, try, lock)			\
+do {								\
+	MT_trace_raw_spin_lock_s(_lock->owner);				\
+	if (!try(_lock)) {					\
+		lock_contended(&(_lock)->dep_map, _RET_IP_);	\
+		lock(_lock);					\
+	}							\
+	lock_acquired(&(_lock)->dep_map, _RET_IP_);			\
+	MT_trace_raw_spin_lock_e(_lock->owner);				\
+} while (0)
+#else	/*CONFIG_DEBUG_SPINLOCK &&  CONFIG_PREEMPT_MONITOR*/
 #define LOCK_CONTENDED(_lock, try, lock)			\
 do {								\
 	if (!try(_lock)) {					\
@@ -431,6 +449,7 @@ do {								\
 	}							\
 	lock_acquired(&(_lock)->dep_map, _RET_IP_);			\
 } while (0)
+#endif
 
 #else /* CONFIG_LOCK_STAT */
 

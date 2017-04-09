@@ -11,6 +11,39 @@
 
 #include <linux/usb/phy.h>
 
+#if defined(CONFIG_USBIF_COMPLIANCE)
+enum usb_otg_event {
+	/* Device is not connected within
+	 * TA_WAIT_BCON or not responding.
+	 */
+	OTG_EVENT_DEV_CONN_TMOUT,
+	/* B-device returned STALL for
+	 * B_HNP_ENABLE feature request.
+	 */
+	OTG_EVENT_NO_RESP_FOR_HNP_ENABLE,
+	/* HUB class devices are not
+	 * supported.
+	 */
+	OTG_EVENT_HUB_NOT_SUPPORTED,
+	/* Device is not supported i.e
+	 * not listed in TPL.
+	 */
+	OTG_EVENT_DEV_NOT_SUPPORTED,
+	/* HNP failed due to
+	 * TA_AIDL_BDIS timeout or
+	 * TB_ASE0_BRST timeout
+	 */
+	OTG_EVENT_HNP_FAILED,
+	/* B-device did not detect VBUS
+	 * within TB_SRP_FAIL time.
+	 */
+	OTG_EVENT_NO_RESP_FOR_SRP,
+	
+	OTG_EVENT_DEV_OVER_CURRENT,
+	OTG_EVENT_MAX_HUB_TIER_EXCEED,
+};
+#endif
+
 struct usb_otg {
 	u8			default_a;
 
@@ -34,6 +67,11 @@ struct usb_otg {
 	/* start or continue HNP role switch */
 	int	(*start_hnp)(struct usb_otg *otg);
 
+#if defined(CONFIG_USBIF_COMPLIANCE)
+	/* send events to user space */
+	int	(*send_event)(struct usb_phy_transceiver *otg,
+			enum usb_otg_event event);
+#endif
 };
 
 extern const char *usb_otg_state_string(enum usb_otg_state state);
@@ -90,6 +128,9 @@ otg_start_srp(struct usb_otg *otg)
 }
 
 /* for OTG controller drivers (and maybe other stuff) */
+#if defined(CONFIG_USBIF_COMPLIANCE)
+extern int otg_send_event(enum usb_otg_event event);
+#endif
 extern int usb_bus_start_enum(struct usb_bus *bus, unsigned port_num);
 
 #endif /* __LINUX_USB_OTG_H */

@@ -477,3 +477,12 @@ config FRONTSWAP
 	  and swap data is stored as normal on the matching swap device.
 
 	  If unsure, say Y to enable frontswap.
+
+config MEMCG_ZNDSWAP
+	bool "Enable MTK feature of memcg with 2ndswap"
+	depends on SWAP && MEMCG
+	default n
+	help
+	  Memcg with 2ndswap can help kernel to identify which swap area is better
+	  for swapped-out pages presently. This will be valid only when we have 2
+	  or more swap areas in the system.

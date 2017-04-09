@@ -7,6 +7,7 @@ config ARM
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
 	select ARCH_WANT_IPC_PARSE_VERSION
+	select ARM_HAS_SG_CHAIN if (ARCH_MT6580 || ARCH_MT6589 || ARCH_MT6582 || ARCH_MT6572 || ARCH_MT8135 || ARCH_MT6595 || ARCH_MT6795 || ARCH_MT6752 || ARCH_MT6735 || ARCH_MT6735M || ARCH_MT6753 || ARCH_MT8127  || ARCH_MT8163 || ARCH_MT2601)
 	select BUILDTIME_EXTABLE_SORT if MMU
 	select CPU_PM if (SUSPEND || CPU_IDLE)
 	select DCACHE_WORD_ACCESS if (CPU_V6 || CPU_V6K || CPU_V7) && !CPU_BIG_ENDIAN && MMU
@@ -15,6 +16,7 @@ config ARM
 	select GENERIC_IRQ_PROBE
 	select GENERIC_IRQ_SHOW
 	select GENERIC_PCI_IOMAP
+	select GENERIC_SCHED_CLOCK
 	select GENERIC_SMP_IDLE_THREAD
 	select GENERIC_IDLE_POLL_SETUP
 	select GENERIC_STRNCPY_FROM_USER
@@ -61,6 +63,7 @@ config ARM
 	select OLD_SIGSUSPEND3
 	select OLD_SIGACTION
 	select HAVE_CONTEXT_TRACKING
+	select CRYPTO_AES_ARM if (ARCH_MT6752 || ARCH_MT6735 || ARCH_MT6735M || ARCH_MT6753 || ARCH_MT8163)
 	help
 	  The ARM series is a line of low-power-consumption RISC chip designs
 	  licensed by ARM Ltd and targeted at embedded applications and
@@ -633,6 +636,274 @@ config ARCH_MSM
 	  stack and controls some vital subsystems
 	  (clock and power control, etc).
 
+config ARCH_MT6572
+	bool "MediaTek MT6572"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select VFP_OPT
+	select KERNEL_MODE_NEON
+	select CRYPTO_AES_ARM_BS	
+	help
+	  This enable support for MediaTek MT6572
+
+config ARCH_MT2601
+	bool "MediaTek MT2601"
+	select MEDIATEK_SOLUTION
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select VFP_OPT
+	help
+	  This enable support for MediaTek MT2601
+
+config ARCH_MT6595
+	bool "MediaTek MT6595"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select FIQ_GLUE
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select ARCH_REQUIRE_GPIOLIB
+	select ARM_ERRATA_828419
+	select ARM_ERRATA_828420
+	select ARM_ERRATA_831171
+	select VFP_OPT
+	select MTK_CPU_STRESS
+	select MTK_LASTPC
+	select MTK_SYSTRACKER
+	select ZONE_DMA if ARM_LPAE
+        select MD32_SUPPORT
+	help
+	  This enable support for MediaTek MT6595
+
+config ARCH_MT6582
+	bool "MediaTek MT6582"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select L1C_OPT
+	select VFP_OPT
+	select MTK_CPU_STRESS
+	select MTK_DBG_DUMP
+	select MTK_KERNEL_IN_SECURE_MODE if ((!TRUSTONIC_TEE_SUPPORT) && (!ARM_PSCI))
+	select FIQ_GLUE if TRUSTONIC_TEE_SUPPORT
+	select KERNEL_MODE_NEON
+	select CRYPTO_AES_ARM_BS
+	help
+	  This enable support for MediaTek MT6582.
+
+config ARCH_MT6592
+	bool "MediaTek MT6592"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select ARM_HAS_SG_CHAIN
+	select VFP_OPT
+	select L1C_OPT
+	select MTK_DBG_DUMP
+	select KERNEL_MODE_NEON
+	select CRYPTO_AES_ARM_BS
+	select MTK_DBG_DUMP
+	help
+	  This enable support for MediaTek MT6592.
+
+config ARCH_MT6735
+	bool "MediaTek MT6735"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select GENERIC_SCHED_CLOCK
+	select VFP_OPT
+	select MTK_SYSTRACKER
+	select MTK_SYS_CIRQ
+	select MTK_EIC
+	select COMMON_CLK if !MTK_CLKMGR
+	select CPU_IDLE if !MTK_LEGACY
+	help
+	  This enable support for MediaTek MT6735
+
+config ARCH_MT6735M
+	bool "MediaTek MT6735M"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select GENERIC_SCHED_CLOCK
+	select VFP_OPT
+	select MTK_SYSTRACKER
+	select MTK_SYS_CIRQ
+	select MTK_EIC
+	select CPU_IDLE if !MTK_LEGACY
+	help
+	  This enable support for MediaTek MT6735M
+
+config ARCH_MT6753
+	bool "MediaTek MT6753"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select GENERIC_SCHED_CLOCK
+	select VFP_OPT
+	select MTK_SYSTRACKER
+	select MTK_SYS_CIRQ
+	select MTK_EIC
+	select CPU_IDLE if !MTK_LEGACY
+	help
+	  This enable support for MediaTek MT6753
+
+config ARCH_MT6752
+	bool "MediaTek MT6752"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select GENERIC_SCHED_CLOCK
+	select VFP_OPT
+	select MTK_SYSTRACKER
+	select MTK_L2C_SHARE
+	select ARM_ERRATA_824069
+	select ARM_ERRATA_826319
+	select ARCH_REQUIRE_GPIOLIB
+	select MTK_EIC
+	select MTK_ETM
+	select MTK_SYS_CIRQ
+	help
+	  This enable support for MediaTek MT6752
+
+config ARCH_MT8163
+	bool "MediaTek MT8163"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select GENERIC_SCHED_CLOCK
+	select VFP_OPT
+	select MTK_SYSTRACKER
+	select MTK_L2C_SHARE
+	select ARM_ERRATA_824069
+	select ARM_ERRATA_826319
+	select ARCH_REQUIRE_GPIOLIB
+	select MTK_EIC
+	select MTK_ETM
+	help
+	  This enable support for MediaTek MT8163
+
+config ARCH_MT6795
+	bool "MediaTek MT6795"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select FIQ_GLUE
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select GENERIC_SCHED_CLOCK
+	select ARM_ERRATA_828419
+	select ARM_ERRATA_828420
+	select VFP_OPT
+	help
+	  This enable support for MediaTek MT6795
+
+config ARCH_MT8127
+	bool "MediaTek MT8127"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	select ARCH_HAS_CPUFREQ
+	select ARM_AMBA
+	select CPU_V7
+	select HAVE_SMP
+	select NEED_MACH_MEMORY_H
+	select FIQ_GLUE
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_DEBUG
+	select ARCH_REQUIRE_GPIOLIB
+	select VFP_OPT
+	select KERNEL_MODE_NEON
+	select CRYPTO_AES_ARM_BS	
+	select HAVE_MTK_IN_HOUSE_TEE_SUPPORT
+	help
+	  This enable support for MediaTek MT8127
+
+config ARCH_MT6580
+    bool "MediaTek MT6580"
+    select GENERIC_TIME
+    select GENERIC_CLOCKEVENTS
+    select ARCH_HAS_CPUFREQ
+    select ARM_AMBA
+    select CPU_V7
+    select FIQ_GLUE if !TRUSTONIC_TEE_SUPPORT
+    select HAVE_SMP
+    select NEED_MACH_MEMORY_H
+    select IRQ_DOMAIN
+    select IRQ_DOMAIN_DEBUG
+    select GENERIC_SCHED_CLOCK
+    select VFP_OPT
+    select ARM_ERRATA_824069
+    select ARM_ERRATA_826319
+    select ARCH_REQUIRE_GPIOLIB
+    select MTK_CPU_STRESS
+    select MTK_LASTPC
+    select KERNEL_MODE_NEON
+    select CRYPTO_AES_ARM_BS
+    select MTK_SYS_CIRQ
+    select MTK_EIC
+    select MTK_SYSTRACKER_V2
+    help
+      This enable support for MediaTek MT6580
+
+
 config ARCH_SHMOBILE
 	bool "Renesas SH-Mobile / R-Mobile"
 	select CLKDEV_LOOKUP
@@ -955,6 +1226,28 @@ source "arch/arm/mach-ks8695/Kconfig"
 
 source "arch/arm/mach-msm/Kconfig"
 
+if ARCH_MT6572
+#source "arch/arm/mach-mt6572/Kconfig"
+endif
+
+if ARCH_MT2601
+#source "arch/arm/mach-mt2601/Kconfig"
+endif
+
+if ARCH_MT6582
+#source "arch/arm/mach-mt6582/Kconfig"
+endif
+
+if ARCH_MT6592
+#source "arch/arm/mach-mt6592/Kconfig"
+endif
+
+if ARCH_MT8127
+#source "arch/arm/mach-mt8127/Kconfig"
+endif
+
+source "drivers/misc/mediatek/mach/Kconfig"
+
 source "arch/arm/mach-mv78xx0/Kconfig"
 
 source "arch/arm/mach-imx/Kconfig"
@@ -1087,6 +1380,17 @@ config MULTI_IRQ_HANDLER
 if !MMU
 source "arch/arm/Kconfig-nommu"
 endif
+
+config MTK_KERNEL_IN_SECURE_MODE
+	bool "MTK's kernel runs in secure mode"
+	depends on ((!TRUSTONIC_TEE_SUPPORT) && (!ARM_PSCI))
+	help
+	  Indication to kernel's mode. (secure or non-secure)
+
+config L1C_OPT
+	bool "MTK's cache operation fixup"
+	help
+	  Use two stages of cache operations to do flush
 
 config PJ4B_ERRATA_4742
 	bool "PJ4B Errata 4742: IDLE Wake Up Commands can Cause the CPU Core to Cease Operation"
@@ -1357,6 +1661,52 @@ config ARM_ERRATA_798181
 	  which sends an IPI to the CPUs that are running the same ASID
 	  as the one being invalidated.
 
+config ARM_ERRATA_828419
+	def_bool n
+	depends on CPU_V7 && SMP
+	help
+	  ARM errata: A Instruction Cache Maintenance Operation by MVA with an incorrect NS descriptor
+	  This workaround is to replace ICIMVAU operations by ICIALLUIS operations
+
+config ARM_ERRATA_828420
+	def_bool n
+	depends on CPU_V7 && SMP
+	help
+	  ARM errata: Cache Clean by MVA to PoC might not be correctly executed
+	  The software workaround is to treat every Data Clean by MVA to PoC
+	  as Data Clean Invalidate by MVA to PoC.
+
+config ARM_ERRATA_831171
+	def_bool n
+	depends on CPU_V7 && SMP
+	help
+	  ARM errata: Within rare timing constraints, a DSB following a TLB or ICache invalidation might complete
+	  before the TLB or ICache invalidation has effectively completed on other CPUs within the cluster
+	  The software workaround is to issue the TLB or ICache maintenance invalidation twice before the DSB
+
+config ARM_ERRATA_824069
+	def_bool n
+	depends on SMP
+	help
+	  This option enables the workaround for erratum 824069
+	  affecting Cortex-A53 MPCore with two or more processors (r0p0..r0p2).
+	  If a Cortex-A53 processor is executing a store or PLDW instruction at the same time
+	  as a processor in another cluster is executing a cache maintenance operation
+	  to the same address, then this erratum might cause a clean cache line to be
+	  incorrectly marked as dirty. This workaround replaces all cache clean opeartion
+	  to clean & invalidate.
+
+config ARM_ERRATA_826319
+	def_bool n
+	depends on SMP
+	help
+	  This option enables the workaround for erratum 826319
+	  affecting Cortex-A53 MPCore with two or more processors (r0p0..r0p2).
+	  This erratum only affects configurations of the Cortex-A53 processor with an ABMA 4 ACE or AXI master interface and an L2 cache.
+	  To be affected by this erratum, the system that Cortex-A53 is connected to must also contain a peripheral or
+	  other component that contains a dependency between the read and write channels. The dependency must
+	  prevent the peripheral from accepting or responding to a write until it finishes processing a read.
+
 endmenu
 
 source "arch/arm/common/Kconfig"
@@ -1495,6 +1845,178 @@ config SCHED_SMT
 	  MultiThreading at a cost of slightly increased overhead in some
 	  places. If unsure say N here.
 
+config DISABLE_CPU_SCHED_DOMAIN_BALANCE
+	bool "(EXPERIMENTAL) Disable CPU level scheduler load-balancing"
+	help
+	  Disables scheduler load-balancing at CPU sched domain level.
+
+config SCHED_HMP
+	bool "(EXPERIMENTAL) Heterogenous multiprocessor scheduling"
+	depends on DISABLE_CPU_SCHED_DOMAIN_BALANCE && SCHED_MC && FAIR_GROUP_SCHED && !SCHED_AUTOGROUP
+	help
+	  Experimental scheduler optimizations for heterogeneous platforms.
+	  Attempts to introspectively select task affinity to optimize power
+	  and performance. Basic support for multiple (>2) cpu types is in place,
+	  but it has only been tested with two types of cpus.
+	  There is currently no support for migration of task groups, hence
+	  !SCHED_AUTOGROUP. Furthermore, normal load-balancing must be disabled
+	  between cpus of different type (DISABLE_CPU_SCHED_DOMAIN_BALANCE).
+
+config SCHED_HMP_PRIO_FILTER
+	bool "(EXPERIMENTAL) Filter HMP migrations by task priority"
+	depends on SCHED_HMP
+	help
+	  Enables task priority based HMP migration filter. Any task with
+	  a NICE value above the threshold will always be on low-power cpus
+	  with less compute capacity.
+
+config SCHED_HMP_PRIO_FILTER_VAL
+	int "NICE priority threshold"
+	default 5
+	depends on SCHED_HMP_PRIO_FILTER
+
+config HMP_FAST_CPU_MASK
+	string "HMP scheduler fast CPU mask"
+	depends on SCHED_HMP
+	help
+          Leave empty to use device tree information.
+	  Specify the cpuids of the fast CPUs in the system as a list string,
+	  e.g. cpuid 0+1 should be specified as 0-1.
+
+config HMP_SLOW_CPU_MASK
+	string "HMP scheduler slow CPU mask"
+	depends on SCHED_HMP
+	help
+	  Leave empty to use device tree information.
+	  Specify the cpuids of the slow CPUs in the system as a list string,
+	  e.g. cpuid 0+1 should be specified as 0-1.
+
+config HMP_VARIABLE_SCALE
+	bool "Allows changing the load tracking scale through sysfs"
+	depends on SCHED_HMP
+	help
+	  When turned on, this option exports the thresholds and load average
+	  period value for the load tracking patches through sysfs.
+	  The values can be modified to change the rate of load accumulation
+	  and the thresholds used for HMP migration.
+	  The load_avg_period_ms is the time in ms to reach a load average of
+	  0.5 for an idle task of 0 load average ratio that start a busy loop.
+	  The up_threshold and down_threshold is the value to go to a faster
+	  CPU or to go back to a slower cpu.
+	  The {up,down}_threshold are devided by 1024 before being compared
+	  to the load average.
+	  For examples, with load_avg_period_ms = 128 and up_threshold = 512,
+	  a running task with a load of 0 will be migrated to a bigger CPU after
+	  128ms, because after 128ms its load_avg_ratio is 0.5 and the real
+	  up_threshold is 0.5.
+	  This patch has the same behavior as changing the Y of the load
+	  average computation to
+	        (1002/1024)^(LOAD_AVG_PERIOD/load_avg_period_ms)
+	  but it remove intermadiate overflows in computation.
+
+config MET_SCHED_HMP
+	bool "(EXPERIMENTAL) MET SCHED HMP Info"
+	depends on SCHED_HMP_ENHANCEMENT
+	depends on HMP_TRACER
+	help
+	  MET SCHED HMP Info
+
+config HMP_FREQUENCY_INVARIANT_SCALE
+	bool "(EXPERIMENTAL) Frequency-Invariant Tracked Load for HMP"
+	depends on HMP_VARIABLE_SCALE && CPU_FREQ
+	depends on !ARCH_SCALE_INVARIANT_CPU_CAPACITY
+	help
+	  Scales the current load contribution in line with the frequency
+	  of the CPU that the task was executed on.
+	  In this version, we use a simple linear scale derived from the
+	  maximum frequency reported by CPUFreq.
+	  Restricting tracked load to be scaled by the CPU's frequency
+	  represents the consumption of possible compute capacity
+	  (rather than consumption of actual instantaneous capacity as
+	  normal) and allows the HMP migration's simple threshold
+	  migration strategy to interact more predictably with CPUFreq's
+	  asynchronous compute capacity changes.
+
+config SCHED_HMP_ENHANCEMENT
+	bool "(EXPERIMENTAL) HMP Ennhancement"
+	depends on SCHED_HMP
+	help
+	  HMP Ennhancement
+
+config HMP_TRACER
+	bool "(EXPERIMENTAL) Profile HMP scheduler"
+	depends on SCHED_HMP_ENHANCEMENT
+	help
+	  Profile HMP scheduler
+
+config HMP_DYNAMIC_THRESHOLD
+	bool "(EXPERIMENTAL) Dynamically adjust task migration threshold"
+	depends on SCHED_HMP_ENHANCEMENT
+	help
+	  Dynamically adjust task migration threshold according to current system load
+
+config HMP_GLOBAL_BALANCE
+	bool "(EXPERIMENTAL) Enhance HMP global load balance"
+	depends on SCHED_HMP_ENHANCEMENT
+	help
+	  Enhance HMP global load balance
+
+config HMP_TASK_ASSIGNMENT
+	bool "(EXPERIMENTAL) Enhance HMP task assignment"
+	depends on SCHED_HMP_ENHANCEMENT
+	help
+	  Enhance HMP task assignment
+
+config HMP_DISCARD_CFS_SELECTION_RESULT
+	bool "(EXPERIMENTAL) Discard CFS runqueue selection result"
+	depends on SCHED_HMP_ENHANCEMENT && HMP_TASK_ASSIGNMENT
+	help
+	  Discard CFS runqueue selection result even if only one cluster exists
+
+config HMP_PACK_SMALL_TASK
+	bool "(EXPERIMENTAL) Packing Small Tasks"
+	depends on SCHED_HMP_ENHANCEMENT
+	help
+		This option enables Packing Small Tasks
+
+config HMP_PACK_BUDDY_INFO
+	bool "(EXPERIMENTAL) Packing Small Tasks Buddy Information Log"
+	depends on SCHED_HMP_ENHANCEMENT && HMP_PACK_SMALL_TASK
+	help
+		This option enables Packing Small Tasks Buddy Information Log
+
+config HMP_LAZY_BALANCE
+	bool "(EXPERIMENTAL) Lazy Balance"
+	depends on SCHED_HMP_ENHANCEMENT && HMP_PACK_SMALL_TASK
+	help
+		This option enables Lazy Balance
+
+config HMP_POWER_AWARE_CONTROLLER
+	bool "(EXPERIMENTAL) Power-aware Scheduler for b.L MP Controller"
+	depends on SCHED_HMP_ENHANCEMENT && HMP_PACK_SMALL_TASK && HMP_LAZY_BALANCE
+	help
+		Power-aware scheduler for b.L MP controller and status interface
+
+config HEVTASK_INTERFACE
+	bool "task status interface"
+	help
+	  The option provide an interface to show task status
+
+config ARCH_SCALE_INVARIANT_CPU_CAPACITY
+       bool "(EXPERIMENTAL) Scale-Invariant CPU Compute Capacity Recording"
+       depends on CPU_FREQ
+       help
+         Provides a new measure of maximum and instantaneous CPU compute
+         capacity, derived from a table of relative compute performance
+         for each core type present in the system. The table is an
+         estimate and specific core performance may be different for
+         any particular workload. The measure includes the relative
+         performance and a linear scale of current to maximum frequency
+         such that at maximum frequency (as expressed in the DTB) the
+         reported compute capacity will be equal to the estimated
+         performance from the table. Values range between 0 and 1023 where
+         1023 is the highest capacity available in the system.
+
 config HAVE_ARM_SCU
 	bool
 	help
@@ -1572,6 +2094,7 @@ config LOCAL_TIMERS
 	bool "Use local timer interrupts"
 	depends on SMP
 	default y
+	select HAVE_ARM_TWD if (!ARCH_MSM_SCORPIONMP && !EXYNOS4_MCT && !ARCH_MT6589 && !ARCH_MT6582 && !ARCH_MT8135 && !ARCH_MT6592 && !ARCH_MT6595 && !ARCH_MT6795 && !ARCH_MT6752 && !ARCH_MT8127 && !ARCH_MT6572 && !ARCH_MT6735 && !ARCH_MT6735M && !ARCH_MT6753 && !ARCH_MT8163 && !ARCH_MT6580 && !ARCH_MT2601)
 	help
 	  Enable support for local timers on SMP platforms, rather then the
 	  legacy IPI broadcast method.  Local timers allows the system
@@ -1820,6 +2343,15 @@ config XEN
 	help
 	  Say Y if you want to run Linux in a Virtual Machine on Xen on ARM.
 
+config ARM_FLUSH_CONSOLE_ON_RESTART
+	bool "Force flush the console on restart"
+	help
+	  If the console is locked while the system is rebooted, the messages
+	  in the temporary logbuffer would not have propogated to all the
+	  console drivers. This option forces the console lock to be
+	  released if it failed to be acquired, which will cause all the
+	  pending messages to be flushed.
+
 endmenu
 
 menu "Boot options"
@@ -1829,6 +2361,7 @@ config USE_OF
 	select IRQ_DOMAIN
 	select OF
 	select OF_EARLY_FLATTREE
+	select OF_RESERVED_MEM
 	help
 	  Include support for flattened device tree machine descriptions.
 
@@ -1848,6 +2381,21 @@ config DEPRECATED_PARAM_STRUCT
 	help
 	  This was deprecated in 2001 and announced to live on for 5 years.
 	  Some old boot loaders still use this way.
+
+config BUILD_ARM_APPENDED_DTB_IMAGE
+	bool "Build a concatenated zImage/dtb by default"
+	depends on OF
+	help
+	  Enabling this option will cause a concatenated zImage and list of
+	  DTBs to be built by default (instead of a standalone zImage.)
+	  The image will built in arch/arm/boot/zImage-dtb
+
+config BUILD_ARM_APPENDED_DTB_IMAGE_NAMES
+	string "Default dtb names"
+	depends on BUILD_ARM_APPENDED_DTB_IMAGE
+	help
+	  Space separated list of names of dtbs to append when
+	  building a concatenated zImage-dtb.
 
 # Compressed boot loader in ROM.  Yes, we really want to ask about
 # TEXT and BSS so we preserve their values in the config files.
@@ -1881,6 +2429,14 @@ config ZBOOT_ROM
 	help
 	  Say Y here if you intend to execute your compressed kernel image
 	  (zImage) directly from ROM or flash.  If unsure, say N.
+
+config COMPAT_CPUINFO
+	bool "Show /proc/cpuinfo in old form"
+	default n
+	help
+	  Show old style /proc/cpuinfo. Do not show cpu features with each
+	  cpu cores.
+	  If unsure, say N
 
 choice
 	prompt "Include SD/MMC loader in zImage (EXPERIMENTAL)"
@@ -2063,6 +2619,14 @@ config CRASH_DUMP
 
 	  For more details see Documentation/kdump/kdump.txt
 
+config RESTART_DISABLE_CACHE
+        bool "Disable cache in arm_machine_restart"
+	default y
+        help
+          Whther to disable DCache in arm_machine_restart().
+          This is a temporary solution before MTK change to use new kernel
+          restart flow.
+
 config AUTO_ZRELADDR
 	bool "Auto calculation of the decompressed kernel image address"
 	depends on !ZBOOT_ROM && !ARCH_U300
@@ -2186,6 +2750,12 @@ config VFP
 
 	  Say N if your target does not have VFP hardware.
 
+config VFP_OPT
+	def_bool n
+	depends on VFP
+	help
+	  Say Y if you want to enable VFP/NEON always
+
 config VFPv3
 	bool
 	depends on VFP
@@ -2197,6 +2767,13 @@ config NEON
 	help
 	  Say Y to include support code for NEON, the ARMv7 Advanced SIMD
 	  Extension.
+
+config KERNEL_MODE_NEON
+	bool "Support for NEON in kernel mode"
+	default n
+	depends on NEON
+	help
+	  Say Y to include support for NEON in kernel mode.
 
 endmenu
 
@@ -2229,6 +2806,11 @@ config ARCH_SUSPEND_POSSIBLE
 config ARM_CPU_SUSPEND
 	def_bool PM_SLEEP
 
+config ARCH_HIBERNATION_POSSIBLE
+        bool
+        depends on MMU
+        default y if ARCH_SUSPEND_POSSIBLE
+
 endmenu
 
 source "net/Kconfig"
@@ -2246,3 +2828,4 @@ source "crypto/Kconfig"
 source "lib/Kconfig"
 
 source "arch/arm/kvm/Kconfig"
+

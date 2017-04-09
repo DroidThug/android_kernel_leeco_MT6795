@@ -138,6 +138,11 @@ static int mmc_ios_show(struct seq_file *s, void *data)
 	case MMC_TIMING_MMC_HS200:
 		str = "mmc high-speed SDR200";
 		break;
+#ifdef CONFIG_EMMC_50_FEATURE
+	case MMC_TIMING_MMC_HS400:
+		str = "mmc high-speed DDR200(HS400)";
+		break;
+#endif
 	default:
 		str = "invalid";
 		break;

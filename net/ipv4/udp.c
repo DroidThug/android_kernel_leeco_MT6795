@@ -123,6 +123,18 @@ EXPORT_SYMBOL(sysctl_udp_rmem_min);
 int sysctl_udp_wmem_min __read_mostly;
 EXPORT_SYMBOL(sysctl_udp_wmem_min);
 
+#ifdef UDP_SKT_WIFI
+#include <linux/kallsyms.h>
+#include <linux/ftrace_event.h>
+int sysctl_udp_met_port __read_mostly = -1;
+EXPORT_SYMBOL(sysctl_udp_met_port);
+int sysctl_met_is_enable __read_mostly = -1;
+EXPORT_SYMBOL(sysctl_met_is_enable);
+#ifdef CONFIG_TRACING
+unsigned long __read_mostly udp_tracing_mark_write_addr = 0;
+#endif
+#endif
+
 atomic_long_t udp_memory_allocated;
 EXPORT_SYMBOL(udp_memory_allocated);
 
@@ -820,6 +832,20 @@ out:
 }
 EXPORT_SYMBOL(udp_push_pending_frames);
 
+#ifdef UDP_SKT_WIFI
+void udp_event_trace_printk(const char * fmt, int pid, __u16 port)
+{
+
+#ifdef CONFIG_TRACING
+	if(unlikely(0 == udp_tracing_mark_write_addr)) {
+	    udp_tracing_mark_write_addr = kallsyms_lookup_name("tracing_mark_write");
+	}
+	event_trace_printk(udp_tracing_mark_write_addr, fmt, pid, MET_SOCKET_LATENCY_NAME, ntohs(port));
+#endif
+}
+EXPORT_SYMBOL(udp_event_trace_printk);
+#endif
+
 int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		size_t len)
 {
@@ -904,6 +930,19 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 	ipc.oif = sk->sk_bound_dev_if;
 
+#ifdef UDP_SKT_WIFI
+	
+	if (unlikely((sysctl_met_is_enable == 1) && (sysctl_udp_met_port > 0))) {
+		
+	    if ((ntohs(inet->inet_sport) == sysctl_udp_met_port) && (len >= 4)) {
+	        __u16 * seq_id = (__u16 *)((char *)msg->msg_iov->iov_base + 2);
+	        udp_event_trace_printk("S|%d|%s|%d\n", current->pid, *seq_id);
+	        
+	    }
+	}
+#endif
+
+
 	sock_tx_timestamp(sk, &ipc.tx_flags);
 
 	if (msg->msg_controllen) {
@@ -963,7 +1002,8 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		flowi4_init_output(fl4, ipc.oif, sk->sk_mark, tos,
 				   RT_SCOPE_UNIVERSE, sk->sk_protocol,
 				   inet_sk_flowi_flags(sk)|FLOWI_FLAG_CAN_SLEEP,
-				   faddr, saddr, dport, inet->inet_sport);
+				   faddr, saddr, dport, inet->inet_sport,
+				   sock_i_uid(sk));
 
 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
 		rt = ip_route_output_flow(net, fl4, sk);
@@ -1048,7 +1088,8 @@ out:
 	 * things).  We could add another new stat but at least for now that
 	 * seems like overkill.
 	 */
-	if (err == -ENOBUFS || test_bit(SOCK_NOSPACE, &sk->sk_socket->flags)) {
+	 /* MTK_NET */
+	if (err == -ENOBUFS || (sk->sk_socket && test_bit(SOCK_NOSPACE, &sk->sk_socket->flags)) ) {
 		UDP_INC_STATS_USER(sock_net(sk),
 				UDP_MIB_SNDBUFERRORS, is_udplite);
 	}

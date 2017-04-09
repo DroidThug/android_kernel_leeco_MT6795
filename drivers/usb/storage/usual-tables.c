@@ -55,6 +55,17 @@
 	.driver_info = (flags) \
 }
 
+#define HW_UNUSUAL_DEV(id_vendor, cl, sc, pr, \
+vendorName, productName,useProtocol, useTransport, \
+initFunction, flags) \
+{ \
+.match_flags = USB_DEVICE_ID_MATCH_INT_INFO | USB_DEVICE_ID_MATCH_VENDOR, \
+.idVendor = (id_vendor), \
+.bInterfaceClass = (cl), \
+.bInterfaceSubClass = (sc), \
+.bInterfaceProtocol = (pr), \
+.driver_info = (flags)}
+
 struct usb_device_id usb_storage_usb_ids[] = {
 #	include "unusual_devs.h"
 	{ }		/* Terminating entry */
@@ -63,6 +74,7 @@ MODULE_DEVICE_TABLE(usb, usb_storage_usb_ids);
 
 #undef UNUSUAL_DEV
 #undef COMPLIANT_DEV
+#undef HW_UNUSUAL_DEV
 #undef USUAL_DEV
 #undef UNUSUAL_VENDOR_INTF
 
@@ -113,6 +125,11 @@ int usb_usual_ignore_device(struct usb_interface *intf)
 	vid = le16_to_cpu(udev->descriptor.idVendor);
 	pid = le16_to_cpu(udev->descriptor.idProduct);
 	bcd = le16_to_cpu(udev->descriptor.bcdDevice);
+
+	if((0x19d2 == vid) && (0xfff1 == pid)){
+	      //  printk("disable zte dongle mass storage driver\n");
+        	return -ENXIO;
+    	}
 
 	for (p = ignore_ids; p->vid; ++p) {
 		if (p->vid == vid && p->pid == pid &&

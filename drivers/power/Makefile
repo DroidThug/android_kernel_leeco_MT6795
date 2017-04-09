@@ -1,3 +1,4 @@
+include $(srctree)/drivers/misc/mediatek/Makefile.custom
 ccflags-$(CONFIG_POWER_SUPPLY_DEBUG) := -DDEBUG
 
 power_supply-y				:= power_supply_core.o
@@ -10,6 +11,7 @@ obj-$(CONFIG_GENERIC_ADC_BATTERY)	+= generic-adc-battery.o
 obj-$(CONFIG_PDA_POWER)		+= pda_power.o
 obj-$(CONFIG_APM_POWER)		+= apm_power.o
 obj-$(CONFIG_MAX8925_POWER)	+= max8925_power.o
+obj-$(CONFIG_MTK_SMART_BATTERY)	+= mediatek/
 obj-$(CONFIG_WM831X_BACKUP)	+= wm831x_backup.o
 obj-$(CONFIG_WM831X_POWER)	+= wm831x_power.o
 obj-$(CONFIG_WM8350_POWER)	+= wm8350_power.o
@@ -53,4 +55,8 @@ obj-$(CONFIG_CHARGER_BQ2415X)	+= bq2415x_charger.o
 obj-$(CONFIG_POWER_AVS)		+= avs/
 obj-$(CONFIG_CHARGER_SMB347)	+= smb347-charger.o
 obj-$(CONFIG_CHARGER_TPS65090)	+= tps65090-charger.o
+obj-$(CONFIG_CHARGER_BQ2589X)	+= bq2589x_dual.o
+ifneq ($(findstring india,$(TARGET_CARRIER)),)
+EXTRA_CFLAGS += -DLEECO_INDIA_CHARGE_LIMIT
+endif
 obj-$(CONFIG_POWER_RESET)	+= reset/

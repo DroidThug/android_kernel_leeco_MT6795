@@ -29,8 +29,25 @@
 #include <linux/async.h>
 #include <linux/suspend.h>
 #include <linux/cpuidle.h>
+#include <linux/timer.h>
+#include <linux/wakeup_reason.h>
+#include <linux/aee.h>
+
 #include "../base.h"
 #include "power.h"
+
+/* #define LOG */ /* for debug only */
+
+#define HIB_DPM_DEBUG 0
+#define _TAG_HIB_M "HIB/DPM"
+#if (HIB_DPM_DEBUG)
+#undef hib_log
+#define hib_log(fmt, ...)   pr_warn("[%s][%s]" fmt, _TAG_HIB_M, __func__, ##__VA_ARGS__);
+#else
+#define hib_log(fmt, ...)
+#endif
+#undef hib_warn
+#define hib_warn(fmt, ...)  pr_warn("[%s][%s]" fmt, _TAG_HIB_M, __func__, ##__VA_ARGS__);
 
 typedef int (*pm_callback_t)(struct device *);
 
@@ -53,6 +70,12 @@ static LIST_HEAD(dpm_noirq_list);
 struct suspend_stats suspend_stats;
 static DEFINE_MUTEX(dpm_list_mtx);
 static pm_message_t pm_transition;
+
+struct dpm_watchdog {
+	struct device		*dev;
+	struct task_struct	*tsk;
+	struct timer_list	timer;
+};
 
 static int async_error;
 
@@ -359,7 +382,7 @@ static void dpm_show_time(ktime_t starttime, pm_message_t state, char *info)
 	usecs = usecs64;
 	if (usecs == 0)
 		usecs = 1;
-	pr_info("PM: %s%s%s of devices complete after %ld.%03ld msecs\n",
+	hib_log("PM: %s%s%s of devices complete after %ld.%03ld msecs\n",
 		info ?: "", info ? " " : "", pm_verb(state.event),
 		usecs / USEC_PER_MSEC, usecs % USEC_PER_MSEC);
 }
@@ -382,6 +405,56 @@ static int dpm_run_callback(pm_callback_t cb, struct device *dev,
 	initcall_debug_report(dev, calltime, error);
 
 	return error;
+}
+
+/**
+ * dpm_wd_handler - Driver suspend / resume watchdog handler.
+ *
+ * Called when a driver has timed out suspending or resuming.
+ * There's not much we can do here to recover so BUG() out for
+ * a crash-dump
+ */
+static void dpm_wd_handler(unsigned long data)
+{
+	struct dpm_watchdog *wd = (void *)data;
+	struct device *dev      = wd->dev;
+	struct task_struct *tsk = wd->tsk;
+
+	dev_emerg(dev, "**** DPM device timeout ****\n");
+	show_stack(tsk, NULL);
+
+	BUG();
+}
+
+/**
+ * dpm_wd_set - Enable pm watchdog for given device.
+ * @wd: Watchdog. Must be allocated on the stack.
+ * @dev: Device to handle.
+ */
+static void dpm_wd_set(struct dpm_watchdog *wd, struct device *dev)
+{
+	struct timer_list *timer = &wd->timer;
+
+	wd->dev = dev;
+	wd->tsk = get_current();
+
+	init_timer_on_stack(timer);
+	timer->expires = jiffies + HZ * 12;
+	timer->function = dpm_wd_handler;
+	timer->data = (unsigned long)wd;
+	add_timer(timer);
+}
+
+/**
+ * dpm_wd_clear - Disable pm watchdog.
+ * @wd: Watchdog to disable.
+ */
+static void dpm_wd_clear(struct dpm_watchdog *wd)
+{
+	struct timer_list *timer = &wd->timer;
+
+	del_timer_sync(timer);
+	destroy_timer_on_stack(timer);
 }
 
 /*------------------------- Resume routines -------------------------*/
@@ -559,6 +632,9 @@ void dpm_resume_start(pm_message_t state)
 }
 EXPORT_SYMBOL_GPL(dpm_resume_start);
 
+
+static int device_suspend_index = 0;
+static int device_resume_index = 0;
 /**
  * device_resume - Execute "resume" callbacks for given device.
  * @dev: Device to handle.
@@ -570,6 +646,7 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 	pm_callback_t callback = NULL;
 	char *info = NULL;
 	int error = 0;
+	struct dpm_watchdog wd;
 
 	TRACE_DEVICE(dev);
 	TRACE_RESUME(0);
@@ -585,17 +662,32 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 	 * a resumed device, even if the device hasn't been completed yet.
 	 */
 	dev->power.is_prepared = false;
+	dpm_wd_set(&wd, dev);
 
 	if (!dev->power.is_suspended)
 		goto Unlock;
 
 	if (dev->pm_domain) {
+#ifdef LOG
+		printk(KERN_DEBUG "[%d] power domain device_resume\n",device_resume_index);
+		if (dev->driver)
+			if(dev->driver->name)
+				printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif		
+		aee_sram_printk("%d\n", device_resume_index++);
 		info = "power domain ";
 		callback = pm_op(&dev->pm_domain->ops, state);
 		goto Driver;
 	}
 
 	if (dev->type && dev->type->pm) {
+#ifdef LOG		
+		printk(KERN_DEBUG "[%d] type device_resume\n",device_resume_index);
+		if (dev->driver)
+			if(dev->driver->name)
+				printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif		
+		aee_sram_printk("%d\n", device_resume_index++);
 		info = "type ";
 		callback = pm_op(dev->type->pm, state);
 		goto Driver;
@@ -603,10 +695,24 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 
 	if (dev->class) {
 		if (dev->class->pm) {
+#ifdef LOG
+			printk(KERN_DEBUG "[%d] class device_resume\n",device_resume_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif			
+			aee_sram_printk("%d\n", device_resume_index++);
 			info = "class ";
 			callback = pm_op(dev->class->pm, state);
 			goto Driver;
 		} else if (dev->class->resume) {
+#ifdef LOG			
+			printk(KERN_DEBUG "[%d] legacy class device_resume\n",device_resume_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);        
+#endif			
+			aee_sram_printk("%d\n", device_resume_index++); 
 			info = "legacy class ";
 			callback = dev->class->resume;
 			goto End;
@@ -615,9 +721,23 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 
 	if (dev->bus) {
 		if (dev->bus->pm) {
+#ifdef LOG			
+			printk(KERN_DEBUG "[%d] bus device_resume\n",device_resume_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif			
+			aee_sram_printk("%d\n", device_resume_index++);
 			info = "bus ";
 			callback = pm_op(dev->bus->pm, state);
 		} else if (dev->bus->resume) {
+#ifdef LOG			
+			printk(KERN_DEBUG "[%d] legacy bus device_resume\n", device_resume_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif			
+			aee_sram_printk("%d\n", device_resume_index++);
 			info = "legacy bus ";
 			callback = dev->bus->resume;
 			goto End;
@@ -626,6 +746,13 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 
  Driver:
 	if (!callback && dev->driver && dev->driver->pm) {
+#ifdef LOG
+			printk(KERN_DEBUG "[%d] driver device_resume\n", device_resume_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif
+			aee_sram_printk("%d\n", device_resume_index++);
 		info = "driver ";
 		callback = pm_op(dev->driver->pm, state);
 	}
@@ -636,6 +763,7 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 
  Unlock:
 	device_unlock(dev);
+	dpm_wd_clear(&wd);
 
  Complete:
 	complete_all(&dev->power.completion);
@@ -710,10 +838,13 @@ void dpm_resume(pm_message_t state)
 			list_move_tail(&dev->power.entry, &dpm_prepared_list);
 		put_device(dev);
 	}
+	device_resume_index = 0;
+	
 	mutex_unlock(&dpm_list_mtx);
 	async_synchronize_full();
 	dpm_show_time(starttime, state, NULL);
 }
+EXPORT_SYMBOL_GPL(dpm_resume);
 
 /**
  * device_complete - Complete a PM transition for given device.
@@ -790,6 +921,7 @@ void dpm_complete(pm_message_t state)
 	list_splice(&list, &dpm_list);
 	mutex_unlock(&dpm_list_mtx);
 }
+EXPORT_SYMBOL_GPL(dpm_complete);
 
 /**
  * dpm_resume_end - Execute "resume" callbacks and complete system transition.
@@ -877,6 +1009,7 @@ static int device_suspend_noirq(struct device *dev, pm_message_t state)
 static int dpm_suspend_noirq(pm_message_t state)
 {
 	ktime_t starttime = ktime_get();
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
 	int error = 0;
 
 	cpuidle_pause();
@@ -904,6 +1037,9 @@ static int dpm_suspend_noirq(pm_message_t state)
 		put_device(dev);
 
 		if (pm_wakeup_pending()) {
+			pm_get_active_wakeup_sources(suspend_abort,
+				MAX_SUSPEND_ABORT_LEN);
+			log_suspend_abort_reason(suspend_abort);
 			error = -EBUSY;
 			break;
 		}
@@ -962,6 +1098,7 @@ static int device_suspend_late(struct device *dev, pm_message_t state)
 static int dpm_suspend_late(pm_message_t state)
 {
 	ktime_t starttime = ktime_get();
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
 	int error = 0;
 
 	mutex_lock(&dpm_list_mtx);
@@ -987,6 +1124,9 @@ static int dpm_suspend_late(pm_message_t state)
 		put_device(dev);
 
 		if (pm_wakeup_pending()) {
+			pm_get_active_wakeup_sources(suspend_abort,
+				MAX_SUSPEND_ABORT_LEN);
+			log_suspend_abort_reason(suspend_abort);
 			error = -EBUSY;
 			break;
 		}
@@ -1053,6 +1193,8 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	pm_callback_t callback = NULL;
 	char *info = NULL;
 	int error = 0;
+	struct dpm_watchdog wd;
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
 
 	dpm_wait_for_children(dev, async);
 
@@ -1069,22 +1211,42 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 		pm_wakeup_event(dev, 0);
 
 	if (pm_wakeup_pending()) {
+		pm_get_active_wakeup_sources(suspend_abort,
+			MAX_SUSPEND_ABORT_LEN);
+		log_suspend_abort_reason(suspend_abort);
 		async_error = -EBUSY;
+        hib_log("async_error(%d) not zero due pm_wakeup_pending return non zero!!\n", async_error);
 		goto Complete;
 	}
 
 	if (dev->power.syscore)
 		goto Complete;
+	
+	dpm_wd_set(&wd, dev);
 
 	device_lock(dev);
 
 	if (dev->pm_domain) {
+#ifdef LOG
+		printk(KERN_DEBUG "[%d] power domain device_suspend\n", device_suspend_index);
+		if (dev->driver)
+			if(dev->driver->name)
+				printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif
+		aee_sram_printk("%d\n", device_suspend_index++);
 		info = "power domain ";
 		callback = pm_op(&dev->pm_domain->ops, state);
 		goto Run;
 	}
 
 	if (dev->type && dev->type->pm) {
+#ifdef LOG		
+		printk(KERN_DEBUG "[%d] type device_suspend\n", device_suspend_index);
+		if (dev->driver)
+			if(dev->driver->name)
+				printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif		
+		aee_sram_printk("%d\n", device_suspend_index++);
 		info = "type ";
 		callback = pm_op(dev->type->pm, state);
 		goto Run;
@@ -1092,10 +1254,24 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 
 	if (dev->class) {
 		if (dev->class->pm) {
+#ifdef LOG			
+			printk(KERN_DEBUG "[%d] class device_suspend\n", device_suspend_index);
+				if (dev->driver)
+					if(dev->driver->name)
+						printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif			
+			aee_sram_printk("%d\n", device_suspend_index++);
 			info = "class ";
 			callback = pm_op(dev->class->pm, state);
 			goto Run;
 		} else if (dev->class->suspend) {
+#ifdef LOG			
+			printk(KERN_DEBUG "[%d] legacy class device_suspend\n", device_suspend_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif					
+			aee_sram_printk("%d\n", device_suspend_index++);
 			pm_dev_dbg(dev, state, "legacy class ");
 			error = legacy_suspend(dev, state, dev->class->suspend);
 			goto End;
@@ -1104,9 +1280,23 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 
 	if (dev->bus) {
 		if (dev->bus->pm) {
+#ifdef LOG			
+			printk(KERN_DEBUG "[%d] bus device_suspend\n", device_suspend_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif			
+			aee_sram_printk("%d\n", device_suspend_index++);
 			info = "bus ";
 			callback = pm_op(dev->bus->pm, state);
 		} else if (dev->bus->suspend) {
+#ifdef LOG			
+			printk(KERN_DEBUG "[%d] legacy bus device_suspend\n", device_suspend_index);
+			if (dev->driver)
+				if(dev->driver->name)
+					printk(KERN_DEBUG "dev->driver->name=%s\n", dev->driver->name);
+#endif			
+			aee_sram_printk("%d\n", device_suspend_index++);
 			pm_dev_dbg(dev, state, "legacy bus ");
 			error = legacy_suspend(dev, state, dev->bus->suspend);
 			goto End;
@@ -1115,6 +1305,13 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 
  Run:
 	if (!callback && dev->driver && dev->driver->pm) {
+#ifdef LOG		
+		printk(KERN_DEBUG "[%d] driver device_suspend\n", device_suspend_index);
+		if (dev->driver)
+			if(dev->driver->name)
+				printk("dev->driver->name=%s\n", dev->driver->name);		
+#endif		
+		aee_sram_printk("%d\n", device_suspend_index++);
 		info = "driver ";
 		callback = pm_op(dev->driver->pm, state);
 	}
@@ -1130,6 +1327,8 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	}
 
 	device_unlock(dev);
+
+	dpm_wd_clear(&wd);
 
  Complete:
 	complete_all(&dev->power.completion);
@@ -1159,6 +1358,7 @@ static int device_suspend(struct device *dev)
 
 	if (pm_async_enabled && dev->power.async_suspend) {
 		get_device(dev);
+        hib_log("using async mode (check value of \"/sys/power/pm_async\"\n");
 		async_schedule(async_suspend, dev);
 		return 0;
 	}
@@ -1193,14 +1393,19 @@ int dpm_suspend(pm_message_t state)
 			pm_dev_err(dev, state, "", error);
 			dpm_save_failed_dev(dev_name(dev));
 			put_device(dev);
+            hib_log("Device %s failed to %s: error %d\n", dev_name(dev), pm_verb(state.event), error);
 			break;
 		}
 		if (!list_empty(&dev->power.entry))
 			list_move(&dev->power.entry, &dpm_suspended_list);
 		put_device(dev);
-		if (async_error)
+		if (async_error) {
+            hib_log("async_error(%d)\n", async_error);
 			break;
+        }
 	}
+	device_suspend_index = 0;
+	
 	mutex_unlock(&dpm_list_mtx);
 	async_synchronize_full();
 	if (!error)
@@ -1210,8 +1415,11 @@ int dpm_suspend(pm_message_t state)
 		dpm_save_failed_step(SUSPEND_SUSPEND);
 	} else
 		dpm_show_time(starttime, state, NULL);
+
+    hib_log("return error(%d)\n", error);
 	return error;
 }
+EXPORT_SYMBOL_GPL(dpm_suspend);
 
 /**
  * device_prepare - Prepare a device for system power transition.
@@ -1313,6 +1521,7 @@ int dpm_prepare(pm_message_t state)
 	mutex_unlock(&dpm_list_mtx);
 	return error;
 }
+EXPORT_SYMBOL_GPL(dpm_prepare);
 
 /**
  * dpm_suspend_start - Prepare devices for PM transition and suspend them.

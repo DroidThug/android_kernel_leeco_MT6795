@@ -13,7 +13,17 @@ extern int debug_locks_silent;
 
 static inline int __debug_locks_off(void)
 {
-	return xchg(&debug_locks, 0);
+    int ret;
+    ret = xchg(&debug_locks, 0);
+    if(ret)
+    {
+        printk("[KERN Warning] ERROR/WARN forces debug_lock off!\n");
+        printk("[KERN Warning] check backtrace:\n");
+        dump_stack();
+    }
+    return ret;
+    //return xchg(&debug_locks, 0);
+
 }
 
 /*
@@ -51,7 +61,7 @@ struct task_struct;
 extern void debug_show_all_locks(void);
 extern void debug_show_held_locks(struct task_struct *task);
 extern void debug_check_no_locks_freed(const void *from, unsigned long len);
-extern void debug_check_no_locks_held(struct task_struct *task);
+extern void debug_check_no_locks_held(void);
 #else
 static inline void debug_show_all_locks(void)
 {
@@ -67,7 +77,7 @@ debug_check_no_locks_freed(const void *from, unsigned long len)
 }
 
 static inline void
-debug_check_no_locks_held(struct task_struct *task)
+debug_check_no_locks_held(void)
 {
 }
 #endif

@@ -889,9 +889,9 @@ static struct attribute_group usb_bus_attr_group = {
  * This code is used to initialize a usb_bus structure, memory for which is
  * separately managed.
  */
-static void usb_bus_init (struct usb_bus *bus)
+static void usb_bus_init(struct usb_bus *bus)
 {
-	memset (&bus->devmap, 0, sizeof(struct usb_devmap));
+	memset(&bus->devmap, 0, sizeof(struct usb_devmap));
 
 	bus->devnum_next = 1;
 
@@ -902,6 +902,9 @@ static void usb_bus_init (struct usb_bus *bus)
 	bus->bandwidth_isoc_reqs = 0;
 
 	INIT_LIST_HEAD (&bus->bus_list);
+#if defined(CONFIG_USB_MTK_OTG) && defined(CONFIG_USBIF_COMPLIANCE)
+	INIT_DELAYED_WORK(&bus->hnp_polling, usb_hnp_polling_work);
+#endif
 }
 
 /*-------------------------------------------------------------------------*/
@@ -931,6 +934,12 @@ static int usb_register_bus(struct usb_bus *bus)
 	/* Add it to the local list of buses */
 	list_add (&bus->bus_list, &usb_bus_list);
 	mutex_unlock(&usb_bus_list_lock);
+#if defined(CONFIG_USB_MTK_OTG) && defined(CONFIG_USBIF_COMPLIANCE)
+	/* Obvioulsy HNP is supported on B-host */
+	dev_err(bus->controller, "usb_register_bus - is_b_host: %d, hnp_support: %d", bus->is_b_host, bus->hnp_support);
+	if (bus->is_b_host)
+		bus->hnp_support = 1;
+#endif
 
 	usb_notify_add_bus(bus);
 
@@ -2166,7 +2175,10 @@ EXPORT_SYMBOL_GPL(usb_hcd_resume_root_hub);
 
 /*-------------------------------------------------------------------------*/
 
-#ifdef	CONFIG_USB_OTG
+#if defined(CONFIG_USBIF_COMPLIANCE)
+#define CONFIG_USB_OTG
+#endif
+#ifdef CONFIG_USB_OTG
 
 /**
  * usb_bus_start_enum - start immediate enumeration (for OTG)

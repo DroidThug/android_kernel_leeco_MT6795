@@ -158,6 +158,11 @@ machine-$(CONFIG_ARCH_KS8695)		+= ks8695
 machine-$(CONFIG_ARCH_LPC32XX)		+= lpc32xx
 machine-$(CONFIG_ARCH_MMP)		+= mmp
 machine-$(CONFIG_ARCH_MSM)		+= msm
+machine-$(CONFIG_ARCH_MT2601)		+= mt2601
+machine-$(CONFIG_ARCH_MT6582)		+= mt6582
+machine-$(CONFIG_ARCH_MT6592)		+= mt6592
+machine-$(CONFIG_ARCH_MT6572)		+= mt6572
+machine-$(CONFIG_ARCH_MT8127)		+= mt8127
 machine-$(CONFIG_ARCH_MV78XX0)		+= mv78xx0
 machine-$(CONFIG_ARCH_MXC)		+= imx
 machine-$(CONFIG_ARCH_MXS)		+= mxs
@@ -264,6 +269,8 @@ libs-y				:= arch/arm/lib/ $(libs-y)
 # Default target when executing plain make
 ifeq ($(CONFIG_XIP_KERNEL),y)
 KBUILD_IMAGE := xipImage
+else ifeq ($(CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE),y)
+KBUILD_IMAGE := zImage-dtb
 else
 KBUILD_IMAGE := zImage
 endif
@@ -274,6 +281,14 @@ KBUILD_DTBS := dtbs
 endif
 
 all:	$(KBUILD_IMAGE) $(KBUILD_DTBS)
+
+MTK_PLATFORM := $(CONFIG_MTK_PLATFORM:"%"=%)
+MTK_PROJECT := $(CONFIG_ARCH_MTK_PROJECT:"%"=%)
+export MTK_PLATFORM MTK_PROJECT MTK_TARGET_PROJECT
+KBUILD_CPPFLAGS += -I$(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/include
+-include $(srctree)/scripts/drvgen/drvgen.mk
+archprepare: $(DRVGEN_FILE_LIST)
+dtbs: $(DRVGEN_FILE_LIST)
 
 boot := arch/arm/boot
 
@@ -294,6 +309,9 @@ zinstall uinstall install: vmlinux
 
 dtbs: scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts MACHINE=$(MACHINE) dtbs
+
+zImage-dtb: vmlinux scripts dtbs
+	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
 
 # We use MRPROPER_FILES and CLEAN_FILES now
 archclean:

@@ -100,15 +100,19 @@ static int wiphy_suspend(struct device *dev, pm_message_t state)
 
 	rtnl_lock();
 	if (rdev->wiphy.registered) {
+#if !defined(CONFIG_MTK_TC1_FEATURE) 
 		if (!rdev->wowlan)
 			cfg80211_leave_all(rdev);
+#endif		
 		if (rdev->ops->suspend)
 			ret = rdev_suspend(rdev, rdev->wowlan);
+#if !defined(CONFIG_MTK_TC1_FEATURE) 
 		if (ret == 1) {
 			/* Driver refuse to configure wowlan */
 			cfg80211_leave_all(rdev);
 			ret = rdev_suspend(rdev, NULL);
 		}
+#endif
 	}
 	rtnl_unlock();
 

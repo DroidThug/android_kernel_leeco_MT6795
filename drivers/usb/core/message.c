@@ -19,6 +19,11 @@
 
 #include "usb.h"
 
+#ifdef CONFIG_MTK_ICUSB_SUPPORT
+int is_musbfsh_rh(struct usb_device *udev);
+void set_icusb_phy_power_negotiation(struct usb_device *udev);
+#endif
+
 static void cancel_async_set_config(struct usb_device *udev);
 
 struct api_context {
@@ -385,7 +390,14 @@ int usb_sg_init(struct usb_sg_request *io, struct usb_device *dev,
 
 	urb_flags = URB_NO_INTERRUPT;
 	if (usb_pipein(pipe))
+	//Added for Rx DMA mode1, ReqMode1 enable
+	{
+	//Added for Rx DMA mode1, ReqMode1 enable
 		urb_flags |= URB_SHORT_NOT_OK;
+	//Added for Rx DMA mode1, ReqMode1 enable
+		urb_flags |= URB_RX_REQ_MODE0_ENABLE;
+	}
+	//Added for Rx DMA mode1, ReqMode1 enable
 
 	for_each_sg(sg, sg, io->entries, i) {
 		struct urb *urb;
@@ -1797,6 +1809,11 @@ free_interfaces:
 		usb_autosuspend_device(dev);
 		goto free_interfaces;
 	}
+#ifdef CONFIG_MTK_ICUSB_SUPPORT
+	if(is_musbfsh_rh(dev->parent)){
+		set_icusb_phy_power_negotiation(dev);
+	}
+#endif
 
 	/*
 	 * Initialize the new interface structures and the
@@ -1903,6 +1920,12 @@ free_interfaces:
 		}
 		create_intf_ep_devs(intf);
 	}
+#ifdef CONFIG_MTK_DT_USB_SUPPORT
+#ifdef	CONFIG_PM_RUNTIME
+	usb_enable_autosuspend(dev); // disable by usb_new_device
+	pm_runtime_set_autosuspend_delay(&dev->dev, (USB_WAKE_TIME - 1) * 1000); //milliseconds, leave some extra time for finishing runtime sleep before system sleep
+#endif
+#endif
 
 	usb_autosuspend_device(dev);
 	return 0;

@@ -15,6 +15,7 @@
 #include <linux/sched.h>
 #include <linux/device.h>
 #include <linux/fault-inject.h>
+#include <linux/wakelock.h>
 
 #include <linux/mmc/core.h>
 #include <linux/mmc/pm.h>
@@ -59,6 +60,9 @@ struct mmc_ios {
 #define MMC_TIMING_UHS_SDR104	6
 #define MMC_TIMING_UHS_DDR50	7
 #define MMC_TIMING_MMC_HS200	8
+#ifdef CONFIG_EMMC_50_FEATURE
+#define MMC_TIMING_MMC_HS400	9
+#endif
 
 #define MMC_SDR_MODE		0
 #define MMC_1_2V_DDR_MODE	1
@@ -100,6 +104,20 @@ struct mmc_host_ops {
 	void	(*pre_req)(struct mmc_host *host, struct mmc_request *req,
 			   bool is_first_req);
 	void	(*request)(struct mmc_host *host, struct mmc_request *req);
+/*++add tuning for Mediatek MSDC host++*/
+	void	(*tuning)(struct mmc_host *host, struct mmc_request *req);
+/*--add tuning for Mediatek MSDC host--*/
+/*++add send stop for Mediatek MSDC host++*/
+	void	(*send_stop)(struct mmc_host *host, struct mmc_request *req);
+/*--add send stop for Mediatek MSDC host--*/
+/*++add dma error reset for Mediatek MSDC host++*/
+	void	(*dma_error_reset)(struct mmc_host *host);
+/*--add dma error reset for Mediatek MSDC host--*/
+/*++add written data check for Mediatek MSDC host++*/
+	bool	(*check_written_data)(struct mmc_host *host, struct mmc_request *req);
+/*--add written data check for Mediatek MSDC host--*/
+
+
 	/*
 	 * Avoid calling these three functions too often or in a "fast path",
 	 * since underlaying controller might implement them in an expensive
@@ -172,6 +190,24 @@ struct mmc_slot {
 	void *handler_priv;
 };
 
+#ifdef CONFIG_MTK_EMMC_CACHE
+/**
+ * struct mmc_flush_ops_info - cache data
+ * @wq:			workqueue
+ * @idle_time_dw:	Idle time flush_ops delayed work
+ * @time_to_start_flush_ops_ms:	The time to start the BKOPs
+ *		  delayed work once MMC thread is idle
+ * @cancel_delayed_work: A flag to indicate if the delayed work
+ *	       should be cancelled
+ */
+struct mmc_flush_info {
+	struct workqueue_struct *wq;
+	struct delayed_work	idle_time_dw;
+	unsigned int		time_to_start_flush_ms;
+	bool			cancel_delayed_work;
+	bool			work_start;
+};
+#endif
 /**
  * mmc_context_info - synchronization details for mmc context
  * @is_done_rcv		wake up reason was done request
@@ -276,6 +312,12 @@ struct mmc_host {
 #define MMC_CAP2_HC_ERASE_SZ	(1 << 9)	/* High-capacity erase size */
 #define MMC_CAP2_CD_ACTIVE_HIGH	(1 << 10)	/* Card-detect signal active high */
 #define MMC_CAP2_RO_ACTIVE_HIGH	(1 << 11)	/* Write-protect signal active high */
+#ifdef CONFIG_EMMC_50_FEATURE
+#define MMC_CAP2_HS400_1_8V_DDR	(1 << 12)        /* can support */
+#define MMC_CAP2_HS400_1_2V_DDR	(1 << 13)        /* can support */
+#define MMC_CAP2_HS400		(MMC_CAP2_HS400_1_8V_DDR | \
+				 MMC_CAP2_HS400_1_2V_DDR)
+#endif
 #define MMC_CAP2_PACKED_RD	(1 << 12)	/* Allow packed read */
 #define MMC_CAP2_PACKED_WR	(1 << 13)	/* Allow packed write */
 #define MMC_CAP2_PACKED_CMD	(MMC_CAP2_PACKED_RD | \
@@ -329,11 +371,20 @@ struct mmc_host {
 	int			claim_cnt;	/* "claim" nesting count */
 
 	struct delayed_work	detect;
+#ifndef CONFIG_HAS_EARLYSUSPEND
+	struct wakeup_source detect_wake_lock;
+#else
+	struct wake_lock	detect_wake_lock;
+#endif
 	int			detect_change;	/* card detect flag */
 	struct mmc_slot		slot;
 
 	const struct mmc_bus_ops *bus_ops;	/* current bus driver */
 	unsigned int		bus_refs;	/* reference counter */
+
+	unsigned int		bus_resume_flags;
+#define MMC_BUSRESUME_MANUAL_RESUME	(1 << 0)
+#define MMC_BUSRESUME_NEEDS_RESUME	(1 << 1)
 
 	unsigned int		sdio_irqs;
 	struct task_struct	*sdio_irq_thread;
@@ -362,6 +413,20 @@ struct mmc_host {
 
 	unsigned int		slotno;	/* used for sdio acpi binding */
 
+#ifdef CONFIG_MMC_EMBEDDED_SDIO
+	struct {
+		struct sdio_cis			*cis;
+		struct sdio_cccr		*cccr;
+		struct sdio_embedded_func	*funcs;
+		int				num_funcs;
+	} embedded_sdio_data;
+#endif
+	struct completion           card_init_done;
+	void (*card_init_complete)(struct mmc_host*);
+	void (*card_init_wait)(struct mmc_host*);
+#ifdef CONFIG_MTK_EMMC_CACHE
+	struct mmc_flush_info	flush_info;
+#endif
 	unsigned long		private[0] ____cacheline_aligned;
 };
 
@@ -370,6 +435,14 @@ int mmc_add_host(struct mmc_host *);
 void mmc_remove_host(struct mmc_host *);
 void mmc_free_host(struct mmc_host *);
 void mmc_of_parse(struct mmc_host *host);
+
+#ifdef CONFIG_MMC_EMBEDDED_SDIO
+extern void mmc_set_embedded_sdio_data(struct mmc_host *host,
+				       struct sdio_cis *cis,
+				       struct sdio_cccr *cccr,
+				       struct sdio_embedded_func *funcs,
+				       int num_funcs);
+#endif
 
 static inline void *mmc_priv(struct mmc_host *host)
 {
@@ -381,6 +454,18 @@ static inline void *mmc_priv(struct mmc_host *host)
 #define mmc_dev(x)	((x)->parent)
 #define mmc_classdev(x)	(&(x)->class_dev)
 #define mmc_hostname(x)	(dev_name(&(x)->class_dev))
+#define mmc_bus_needs_resume(host) ((host)->bus_resume_flags & MMC_BUSRESUME_NEEDS_RESUME)
+#define mmc_bus_manual_resume(host) ((host)->bus_resume_flags & MMC_BUSRESUME_MANUAL_RESUME)
+
+static inline void mmc_set_bus_resume_policy(struct mmc_host *host, int manual)
+{
+	if (manual)
+		host->bus_resume_flags |= MMC_BUSRESUME_MANUAL_RESUME;
+	else
+		host->bus_resume_flags &= ~MMC_BUSRESUME_MANUAL_RESUME;
+}
+
+extern int mmc_resume_bus(struct mmc_host *host);
 
 int mmc_suspend_host(struct mmc_host *);
 int mmc_resume_host(struct mmc_host *);

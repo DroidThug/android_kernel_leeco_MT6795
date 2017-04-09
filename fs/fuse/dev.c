@@ -7,6 +7,7 @@
 */
 
 #include "fuse_i.h"
+#include "fuse.h"
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -20,6 +21,7 @@
 #include <linux/swap.h>
 #include <linux/splice.h>
 #include <linux/aio.h>
+#include <linux/freezer.h>
 
 MODULE_ALIAS_MISCDEV(FUSE_MINOR);
 MODULE_ALIAS("devname:fuse");
@@ -464,7 +466,10 @@ __acquires(fc->lock)
 	 * Wait it out.
 	 */
 	spin_unlock(&fc->lock);
-	wait_event(req->waitq, req->state == FUSE_REQ_FINISHED);
+
+	while (req->state != FUSE_REQ_FINISHED)
+		wait_event_freezable(req->waitq,
+				     req->state == FUSE_REQ_FINISHED);
 	spin_lock(&fc->lock);
 
 	if (!req->aborted)
@@ -483,6 +488,21 @@ __acquires(fc->lock)
 		spin_lock(&fc->lock);
 	}
 }
+
+#ifdef MET_FUSEIO_TRACE
+#define CREATE_TRACE_POINTS
+#include <linux/met_ftrace_fuse.h>
+
+void met_fuse_start(int t_pid, char *t_name, unsigned int op, unsigned int size)
+{
+	MET_FTRACE_PRINTK(met_fuse_start, t_pid, t_name, op, size);
+}
+
+void met_fuse_stop(int t_pid, char *t_name, unsigned int op, unsigned int size)
+{
+	MET_FTRACE_PRINTK(met_fuse_stop, t_pid, t_name, op, size);
+}
+#endif
 
 static void __fuse_request_send(struct fuse_conn *fc, struct fuse_req *req)
 {
@@ -504,10 +524,35 @@ static void __fuse_request_send(struct fuse_conn *fc, struct fuse_req *req)
 	spin_unlock(&fc->lock);
 }
 
+void fuse_request_send_ex(struct fuse_conn *fc, struct fuse_req *req,
+    __u32 size)
+{
+	FUSE_IOLOG_INIT(size, req->in.h.opcode);
+#ifdef MET_FUSEIO_TRACE
+	int pid;
+	char task_name[TASK_COMM_LEN];
+	unsigned int opcode;
+#endif
+	req->isreply = 1;
+#ifdef MET_FUSEIO_TRACE
+	pid = task_pid_nr(current);
+	get_task_comm(task_name, current);
+	opcode = req->in.h.opcode;
+	met_fuse_start(pid, task_name, opcode, size);
+#endif
+	FUSE_IOLOG_START();
+	__fuse_request_send(fc, req);
+#ifdef MET_FUSEIO_TRACE
+	met_fuse_stop(pid, task_name, opcode, size);
+#endif
+	FUSE_IOLOG_END();
+	FUSE_IOLOG_PRINT();
+}
+EXPORT_SYMBOL_GPL(fuse_request_send_ex);
+
 void fuse_request_send(struct fuse_conn *fc, struct fuse_req *req)
 {
-	req->isreply = 1;
-	__fuse_request_send(fc, req);
+	fuse_request_send_ex(fc, req, 0);
 }
 EXPORT_SYMBOL_GPL(fuse_request_send);
 
@@ -539,10 +584,33 @@ static void fuse_request_send_nowait(struct fuse_conn *fc, struct fuse_req *req)
 	}
 }
 
-void fuse_request_send_background(struct fuse_conn *fc, struct fuse_req *req)
+void fuse_request_send_background_ex(struct fuse_conn *fc, struct fuse_req *req,
+    __u32 size)
 {
+	FUSE_IOLOG_INIT(size, req->in.h.opcode);
+#ifdef MET_FUSEIO_TRACE
+	int pid;
+	char task_name[TASK_COMM_LEN];
+	unsigned int opcode;
+	pid = task_pid_nr(current);
+	get_task_comm(task_name, current);
+	opcode = req->in.h.opcode;
+	met_fuse_start(pid, task_name, opcode, size);
+#endif
+	FUSE_IOLOG_START();
 	req->isreply = 1;
 	fuse_request_send_nowait(fc, req);
+#ifdef MET_FUSEIO_TRACE
+	met_fuse_stop(pid, task_name, opcode, size);
+#endif
+	FUSE_IOLOG_END();
+	FUSE_IOLOG_PRINT();
+}
+EXPORT_SYMBOL_GPL(fuse_request_send_background_ex);
+
+void fuse_request_send_background(struct fuse_conn *fc, struct fuse_req *req)
+{
+    fuse_request_send_background_ex(fc, req, 0);
 }
 EXPORT_SYMBOL_GPL(fuse_request_send_background);
 

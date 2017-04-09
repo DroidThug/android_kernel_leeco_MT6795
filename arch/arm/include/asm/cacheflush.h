@@ -16,6 +16,7 @@
 #include <asm/shmparam.h>
 #include <asm/cachetype.h>
 #include <asm/outercache.h>
+#include <asm/rodata.h>
 
 #define CACHE_COLOUR(vaddr)	((vaddr & (SHMLBA - 1)) >> PAGE_SHIFT)
 
@@ -184,15 +185,34 @@ extern void copy_to_user_page(struct vm_area_struct *, struct page *,
  */
 
 /* Invalidate I-cache */
+#ifdef CONFIG_ARM_ERRATA_831171                                         
+#define __flush_icache_all_generic()					\
+	do {								\
+	asm("mcr	p15, 0, %0, c7, c5, 0"				\
+	    : : "r" (0));						\
+	asm("mcr        p15, 0, %0, c7, c5, 0"				\
+	    : : "r" (0));						\
+	} while (0)
+#else
 #define __flush_icache_all_generic()					\
 	asm("mcr	p15, 0, %0, c7, c5, 0"				\
 	    : : "r" (0));
+#endif
 
 /* Invalidate I-cache inner shareable */
+#ifdef CONFIG_ARM_ERRATA_831171
+#define __flush_icache_all_v7_smp()					\
+	do {								\
+	asm("mcr        p15, 0, %0, c7, c1, 0"				\
+	    : : "r" (0));						\
+	asm("mcr	p15, 0, %0, c7, c1, 0"				\
+	    : : "r" (0));						\
+	} while (0)
+#else
 #define __flush_icache_all_v7_smp()					\
 	asm("mcr	p15, 0, %0, c7, c1, 0"				\
 	    : : "r" (0));
-
+#endif
 /*
  * Optimized __flush_icache_all for the common cases. Note that UP ARMv7
  * will fall through to use __flush_icache_all_generic.

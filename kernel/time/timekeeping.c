@@ -23,6 +23,7 @@
 #include <linux/stop_machine.h>
 #include <linux/pvclock_gtod.h>
 
+#include <mach/mt_ccci_common.h>
 #include "tick-internal.h"
 #include "ntp_internal.h"
 
@@ -516,6 +517,7 @@ int do_settimeofday(const struct timespec *tv)
 	/* signal hrtimers about time change */
 	clock_was_set();
 
+	notify_time_update();
 	return 0;
 }
 EXPORT_SYMBOL(do_settimeofday);

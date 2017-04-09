@@ -28,6 +28,15 @@
 /* FIXME: IR_KEYPRESS_TIMEOUT should be protocol specific */
 #define IR_KEYPRESS_TIMEOUT 250
 
+static int i4_ir_keypress_timeout = IR_KEYPRESS_TIMEOUT;
+
+void rc_set_keypress_timeout(int i4value)
+{
+	i4_ir_keypress_timeout = i4value;
+}
+EXPORT_SYMBOL_GPL(rc_set_keypress_timeout);
+
+
 /* Used to keep track of known keymaps */
 static LIST_HEAD(rc_map_list);
 static DEFINE_SPINLOCK(rc_map_lock);
@@ -670,7 +679,8 @@ void rc_keydown(struct rc_dev *dev, int scancode, u8 toggle)
 	ir_do_keydown(dev, scancode, keycode, toggle);
 
 	if (dev->keypressed) {
-		dev->keyup_jiffies = jiffies + msecs_to_jiffies(IR_KEYPRESS_TIMEOUT);
+		//dev->keyup_jiffies = jiffies + msecs_to_jiffies(IR_KEYPRESS_TIMEOUT);
+		dev->keyup_jiffies = jiffies + msecs_to_jiffies(i4_ir_keypress_timeout);
 		mod_timer(&dev->timer_keyup, dev->keyup_jiffies);
 	}
 	spin_unlock_irqrestore(&dev->keylock, flags);

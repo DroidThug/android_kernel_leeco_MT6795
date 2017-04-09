@@ -37,6 +37,8 @@
 #include <linux/init.h>
 #include <linux/bootmem.h>
 #include <linux/iommu-helper.h>
+#include <linux/memblock.h>
+#include <mach/mtk_memcfg.h>
 
 #define OFFSET(val,align) ((unsigned long)	\
 	                   ( (val) & ( (align) - 1)))
@@ -117,7 +119,11 @@ unsigned long swiotlb_nr_tbl(void)
 EXPORT_SYMBOL_GPL(swiotlb_nr_tbl);
 
 /* default to 64MB */
-#define IO_TLB_DEFAULT_SIZE (64UL<<20)
+#ifdef CONFIG_MTK_LM_MODE
+#define IO_TLB_DEFAULT_SIZE (SZ_64M)
+#else
+#define IO_TLB_DEFAULT_SIZE ((1 << IO_TLB_SHIFT) * IO_TLB_SEGSIZE)
+#endif // end of CONFIG_MTK_LM_MODE
 unsigned long swiotlb_size_or_default(void)
 {
 	unsigned long size;
@@ -149,7 +155,7 @@ void swiotlb_print_info(void)
 	vstart = phys_to_virt(io_tlb_start);
 	vend = phys_to_virt(io_tlb_end);
 
-	printk(KERN_INFO "software IO TLB [mem %#010llx-%#010llx] (%luMB) mapped at [%p-%p]\n",
+	MTK_MEMCFG_LOG_AND_PRINTK(KERN_ALERT"software IO TLB [mem %#010llx-%#010llx] (%luMB) mapped at [%p-%p]\n",
 	       (unsigned long long)io_tlb_start,
 	       (unsigned long long)io_tlb_end,
 	       bytes >> 20, vstart, vend - 1);
@@ -201,8 +207,9 @@ void  __init
 swiotlb_init(int verbose)
 {
 	size_t default_size = IO_TLB_DEFAULT_SIZE;
-	unsigned char *vstart;
+	unsigned char *vstart = 0;
 	unsigned long bytes;
+	phys_addr_t start;
 
 	if (!io_tlb_nslabs) {
 		io_tlb_nslabs = (default_size >> IO_TLB_SHIFT);
@@ -212,13 +219,20 @@ swiotlb_init(int verbose)
 	bytes = io_tlb_nslabs << IO_TLB_SHIFT;
 
 	/* Get IO TLB memory from the low pages */
-	vstart = alloc_bootmem_low_pages_nopanic(PAGE_ALIGN(bytes));
+	memblock_set_current_limit(0xffffffff);	/* 4GB */
+	start = memblock_alloc(PAGE_ALIGN(bytes), PAGE_SIZE);
+	if (start) {
+		vstart = __va(start);
+	} else {
+		pr_err("iotlb allocation fail\n");
+	}
+	memblock_set_current_limit(MEMBLOCK_ALLOC_ANYWHERE);
 	if (vstart && !swiotlb_init_with_tbl(vstart, io_tlb_nslabs, verbose))
 		return;
 
 	if (io_tlb_start)
-		free_bootmem(io_tlb_start,
-				 PAGE_ALIGN(io_tlb_nslabs << IO_TLB_SHIFT));
+		memblock_free(io_tlb_start,
+				PAGE_ALIGN(io_tlb_nslabs << IO_TLB_SHIFT));
 	pr_warn("Cannot allocate SWIOTLB buffer");
 	no_iotlb_memory = true;
 }
@@ -690,6 +704,7 @@ swiotlb_full(struct device *dev, size_t size, enum dma_data_direction dir,
 	 */
 	printk(KERN_ERR "DMA: Out of SW-IOMMU space for %zu bytes at "
 	       "device %s\n", size, dev ? dev_name(dev) : "?");
+	BUG();
 
 	if (size <= io_tlb_overflow || !do_panic)
 		return;

@@ -385,11 +385,15 @@ static int usb_unbind_interface(struct device *dev)
 	 */
 	lpm_disable_error = usb_unlocked_disable_lpm(udev);
 
-	/* Terminate all URBs for this interface unless the driver
-	 * supports "soft" unbinding.
+
+	/*
+	 * Terminate all URBs for this interface unless the driver
+	 * supports "soft" unbinding and the device is still present.
 	 */
-	if (!driver->soft_unbind)
+
+	if (!driver->soft_unbind || udev->state == USB_STATE_NOTATTACHED) {
 		usb_disable_interface(udev, intf, false);
+	}
 
 	driver->disconnect(intf);
 	usb_cancel_queued_reset(intf);
@@ -1088,8 +1092,12 @@ static int usb_suspend_device(struct usb_device *udev, pm_message_t msg)
 
 	/* For devices that don't have a driver, we do a generic suspend. */
 	if (udev->dev.driver)
+	{
+		MYDBG("");	
 		udriver = to_usb_device_driver(udev->dev.driver);
+	}
 	else {
+		MYDBG("");	
 		udev->do_remote_wakeup = 0;
 		udriver = &usb_generic_driver;
 	}
@@ -1124,8 +1132,10 @@ static int usb_resume_device(struct usb_device *udev, pm_message_t msg)
 	if (udev->quirks & USB_QUIRK_RESET_RESUME)
 		udev->reset_resume = 1;
 
+	MYDBG("");	
 	udriver = to_usb_device_driver(udev->dev.driver);
 	status = udriver->resume(udev, msg);
+	MYDBG("");	
 
  done:
 	dev_vdbg(&udev->dev, "%s: status %d\n", __func__, status);
@@ -1238,6 +1248,8 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 	int			i = 0, n = 0;
 	struct usb_interface	*intf;
 
+	dev_err(&udev->dev, "%s: READY TO SUSPEND BOTH\n", __func__);
+
 	if (udev->state == USB_STATE_NOTATTACHED ||
 			udev->state == USB_STATE_SUSPENDED)
 		goto done;
@@ -1249,15 +1261,20 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 			intf = udev->actconfig->interface[i];
 			status = usb_suspend_interface(udev, intf, msg);
 
+			/* don't ignore suspend error to keep data not losing on class driver (acm, i.e.)*/
+#if 0
 			/* Ignore errors during system sleep transitions */
 			if (!PMSG_IS_AUTO(msg))
 				status = 0;
+#endif
 			if (status != 0)
 				break;
 		}
 	}
 	if (status == 0) {
+		dev_err(&udev->dev, "%s: BEFORE usb_suspend_device\n", __func__);
 		status = usb_suspend_device(udev, msg);
+		dev_err(&udev->dev, "%s: AFTER usb_suspend_device\n", __func__);
 
 		/*
 		 * Ignore errors from non-root-hub devices during
@@ -1271,6 +1288,7 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 
 	/* If the suspend failed, resume interfaces that did get suspended */
 	if (status != 0) {
+		dev_err(&udev->dev, "%s: SUSPEND FAILED: status: %d\n", __func__, status);
 		if (udev->actconfig) {
 			msg.event ^= (PM_EVENT_SUSPEND | PM_EVENT_RESUME);
 			while (++i < n) {
@@ -1283,6 +1301,7 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 	 * and flush any outstanding URBs.
 	 */
 	} else {
+		dev_err(&udev->dev, "%s: SUSPEND SUCCESS: status: %d\n", __func__, status);
 		udev->can_submit = 0;
 		for (i = 0; i < 16; ++i) {
 			usb_hcd_flush_endpoint(udev, udev->ep_out[i]);
@@ -1318,6 +1337,7 @@ static int usb_resume_both(struct usb_device *udev, pm_message_t msg)
 	int			status = 0;
 	int			i;
 	struct usb_interface	*intf;
+	dev_err(&udev->dev, "%s: READY TO RESUME BOTH\n", __func__);
 
 	if (udev->state == USB_STATE_NOTATTACHED) {
 		status = -ENODEV;
@@ -1346,9 +1366,90 @@ static int usb_resume_both(struct usb_device *udev, pm_message_t msg)
 	return status;
 }
 
+#if defined(CONFIG_USB_MTK_OTG) && defined(CONFIG_USBIF_COMPLIANCE)
+extern struct musb *mtk_musb;
+extern void musb_hnp_stop(struct musb *musb);
+extern void musb_set_host_request_flag(struct musb *musb, unsigned value);
+
+extern struct usb_hub *usb_hub_to_struct_hub(struct usb_device *hdev);
+void usb_hnp_polling_work(struct work_struct *work)
+{
+	int ret;
+	struct usb_bus *bus = container_of(work, struct usb_bus, hnp_polling.work);
+	struct usb_device *udev;
+	struct usb_hcd *hcd = bus_to_hcd(bus);
+	struct usb_hub *hub = usb_hub_to_struct_hub(bus->root_hub);
+	udev = usb_hub_find_child(hcd->self.root_hub, bus->otg_port);
+
+	u8 *status = NULL;
+	dev_err(&udev->dev, "%s: BEGIN usb_hnp_polling_work\n", __func__);
+
+	/*
+	 * The OTG-B device must hand back the host role to OTG PET
+	 * within 100 msec irrespective of host_request flag.
+	 */
+	if (bus->quick_hnp) {
+		bus->quick_hnp = 0;
+		goto start_hnp;
+	}
+
+	status = kmalloc(sizeof(*status), GFP_KERNEL);
+	if (!status)
+		goto reschedule;
+
+	ret = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0),
+		USB_REQ_GET_STATUS, USB_DIR_IN | USB_RECIP_DEVICE,
+		0, OTG_STATUS_SELECTOR, status, sizeof(*status),
+		USB_CTRL_GET_TIMEOUT);
+	if (ret < 0) {
+		/* Peripheral may not be supporting HNP polling */
+		dev_err(&udev->dev, "%s: HNP polling failed. status %d\n", __func__, ret);
+		goto out;
+	}
+
+	if (!(*status & (1 << HOST_REQUEST_FLAG))) {
+        dev_err(&udev->dev, "%s: goto reschedule!!\n", __func__);
+		goto reschedule;
+    }
+
+start_hnp:
+	//do_unbind_rebind(udev, DO_UNBIND);
+#if 1
+	dev_err(&udev->dev, "%s: start_hnp\n", __func__);
+	unbind_no_pm_drivers_interfaces(udev);
+	udev->do_remote_wakeup = device_may_wakeup(&udev->dev);
+	dev_err(&udev->dev, "%s: before usb_suspend_both\n", __func__);
+	ret = usb_suspend_both(udev, PMSG_USER_SUSPEND);
+	dev_err(&udev->dev, "%s: after usb_suspend_both\n", __func__);
+#endif
+    
+stop_hnp:
+#if 1
+	//msleee(5000);
+	dev_err(&udev->dev, "%s: STOP_RECORD_OPSTATE\n", __func__);
+	//spin_lock(&mtk_musb->lock);
+	dev_err(&udev->dev, "%s: MUSB_HNP_STOP\n", __func__);
+	musb_hnp_stop(mtk_musb);
+	//spin_unlock(&mtk_musb->lock);
+	dev_err(&udev->dev, "%s: SET_HOST_REQ_FLAG 0\n", __func__);
+	musb_set_host_request_flag(mtk_musb, 0);
+#endif
+	if (ret)
+		dev_err(&udev->dev, "%s: suspend failed\n", __func__);
+	goto out;
+
+reschedule:
+	dev_err(&udev->dev, "%s: schedule_delayed_work\n", __func__);
+	schedule_delayed_work(&bus->hnp_polling,
+		msecs_to_jiffies(THOST_REQ_POLL));
+out:
+	kfree(status);
+}
+#endif
+
 static void choose_wakeup(struct usb_device *udev, pm_message_t msg)
 {
-	int	w;
+	int w;
 
 	/* Remote wakeup is needed only when we actually go to sleep.
 	 * For things like FREEZE and QUIESCE, if the device is already
@@ -1741,6 +1842,7 @@ int usb_runtime_suspend(struct device *dev)
 	struct usb_device	*udev = to_usb_device(dev);
 	int			status;
 
+	dev_err(&udev->dev, "%s: LINE: %d\n", __func__, __LINE__);
 	/* A USB device can be suspended if it passes the various autosuspend
 	 * checks.  Runtime suspend for a USB device means suspending all the
 	 * interfaces and then the device itself.
@@ -1748,11 +1850,15 @@ int usb_runtime_suspend(struct device *dev)
 	if (autosuspend_check(udev) != 0)
 		return -EAGAIN;
 
+	dev_err(&udev->dev, "%s: LINE: %d\n", __func__, __LINE__);
 	status = usb_suspend_both(udev, PMSG_AUTO_SUSPEND);
 
 	/* Allow a retry if autosuspend failed temporarily */
 	if (status == -EAGAIN || status == -EBUSY)
+	{
+		MYDBG("");	
 		usb_mark_last_busy(udev);
+	}
 
 	/*
 	 * The PM core reacts badly unless the return code is 0,
@@ -1761,7 +1867,11 @@ int usb_runtime_suspend(struct device *dev)
 	 * an upstream port like other USB devices).
 	 */
 	if (status != 0 && udev->parent)
+	{
+		MYDBG("");	
 		return -EBUSY;
+	}
+	
 	return status;
 }
 
@@ -1769,6 +1879,8 @@ int usb_runtime_resume(struct device *dev)
 {
 	struct usb_device	*udev = to_usb_device(dev);
 	int			status;
+	
+	dev_err(&udev->dev, "%s: LINE: %d\n", __func__, __LINE__);
 
 	/* Runtime resume for a USB device means resuming both the device
 	 * and all its interfaces.

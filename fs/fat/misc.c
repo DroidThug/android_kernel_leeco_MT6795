@@ -10,6 +10,7 @@
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include <linux/time.h>
+#include <linux/blkdev.h>
 #include "fat.h"
 
 /*
@@ -274,7 +275,13 @@ int fat_sync_bhs(struct buffer_head **bhs, int nr_bhs)
 	int i, err = 0;
 
 	for (i = 0; i < nr_bhs; i++)
+	{
+#ifdef FEATURE_STORAGE_META_LOG
+		if( bhs[i] && bhs[i]->b_bdev && bhs[i]->b_bdev->bd_disk)
+			set_metadata_rw_status(bhs[i]->b_bdev->bd_disk->first_minor, NOWAIT_WRITE_CNT);
+#endif
 		write_dirty_buffer(bhs[i], WRITE);
+	}
 
 	for (i = 0; i < nr_bhs; i++) {
 		wait_on_buffer(bhs[i]);

@@ -36,7 +36,10 @@
 #include <linux/pagevec.h>
 #include <linux/timer.h>
 #include <linux/sched/rt.h>
+#include <linux/mm_inline.h>
 #include <trace/events/writeback.h>
+
+#include "internal.h"
 
 /*
  * Sleep at most 200ms at a time in balance_dirty_pages().
@@ -108,6 +111,7 @@ unsigned int dirty_expire_interval = 30 * 100; /* centiseconds */
  * Flag that makes the machine dump writes/reads and block dirtyings.
  */
 int block_dump;
+EXPORT_SYMBOL_GPL(block_dump);
 
 /*
  * Flag that puts the machine in "laptop mode". Doubles as a timeout in jiffies:

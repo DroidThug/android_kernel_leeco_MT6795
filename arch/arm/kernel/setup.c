@@ -37,6 +37,7 @@
 #include <asm/cputype.h>
 #include <asm/elf.h>
 #include <asm/procinfo.h>
+#include <asm/psci.h>
 #include <asm/sections.h>
 #include <asm/setup.h>
 #include <asm/smp_plat.h>
@@ -96,6 +97,9 @@ EXPORT_SYMBOL(system_serial_high);
 
 unsigned int elf_hwcap __read_mostly;
 EXPORT_SYMBOL(elf_hwcap);
+
+unsigned int elf_hwcap2 __read_mostly;
+EXPORT_SYMBOL(elf_hwcap2);
 
 
 #ifdef MULTI_CPU
@@ -261,6 +265,19 @@ static int cpu_has_aliasing_icache(unsigned int arch)
 	int aliasing_icache;
 	unsigned int id_reg, num_sets, line_size;
 
+#ifdef CONFIG_BIG_LITTLE
+	/*
+	 * We expect a combination of Cortex-A15 and Cortex-A7 cores.
+	 * A7 = VIPT aliasing I-cache
+	 * A15 = PIPT (non-aliasing) I-cache
+	 * To cater for this discrepancy, let's assume aliasing I-cache
+	 * all the time.  This means unneeded extra work on the A15 but
+	 * only ptrace is affected which is not performance critical.
+	 */
+	if ((read_cpuid_id() & 0xff0ffff0) == 0x410fc0f0)
+		return 1;
+#endif
+
 	/* PIPT caches never alias. */
 	if (icache_is_pipt())
 		return 0;
@@ -355,7 +372,7 @@ void __init early_print(const char *str, ...)
 
 static void __init cpuid_init_hwcaps(void)
 {
-	unsigned int divide_instrs;
+	unsigned int divide_instrs, features, block;
 
 	if (cpu_architecture() < CPU_ARCH_ARMv7)
 		return;
@@ -368,6 +385,37 @@ static void __init cpuid_init_hwcaps(void)
 	case 1:
 		elf_hwcap |= HWCAP_IDIVT;
 	}
+
+	/*
+	 * ID_ISAR5 contains 4-bit wide signed feature blocks.
+	 * The blocks we test below represent incremental functionality
+	 * for non-negative values. Negative values are reserved.
+	 */
+	features = read_cpuid_ext(CPUID_EXT_ISAR5);
+	block = (features >> 4) & 0xf;
+	if (!(block & 0x8)) {
+		switch (block) {
+		default:
+		case 2:
+			elf_hwcap2 |= HWCAP2_PMULL;
+		case 1:
+			elf_hwcap2 |= HWCAP2_AES;
+		case 0:
+			break;
+		}
+	}
+
+	block = (features >> 8) & 0xf;
+	if (block && !(block & 0x8))
+		elf_hwcap2 |= HWCAP2_SHA1;
+
+	block = (features >> 12) & 0xf;
+	if (block && !(block & 0x8))
+		elf_hwcap2 |= HWCAP2_SHA2;
+
+	block = (features >> 16) & 0xf;
+	if (block && !(block & 0x8))
+		elf_hwcap2 |= HWCAP2_CRC32;
 }
 
 static void __init feat_v6_fixup(void)
@@ -399,6 +447,8 @@ void notrace cpu_init(void)
 		printk(KERN_CRIT "CPU%u: bad primary CPU number\n", cpu);
 		BUG();
 	}
+
+	erratum_a15_798181_init();
 
 	/*
 	 * This only works on resume and secondary cores. For booting on the
@@ -455,7 +505,12 @@ void __init smp_setup_processor_id(void)
 	cpu_logical_map(0) = cpu;
 	for (i = 1; i < nr_cpu_ids; ++i)
 		cpu_logical_map(i) = i == cpu ? 0 : i;
-
+	/*
+	 * clear __my_cpu_offset on boot CPU to avoid hang caused by
+	 * using percpu variable early, for example, lockdep will
+	 * access percpu variable inside lock_release
+	 */
+	set_my_cpu_offset(0);
 	printk(KERN_INFO "Booting Linux on physical CPU 0x%x\n", mpidr);
 }
 
@@ -818,9 +873,13 @@ void __init setup_arch(char **cmdline_p)
 	unflatten_device_tree();
 
 	arm_dt_init_cpu_maps();
+	psci_init();
 #ifdef CONFIG_SMP
 	if (is_smp()) {
-		smp_set_ops(mdesc->smp);
+		if (psci_smp_available())
+			smp_set_ops(&psci_smp_ops);
+		else if (mdesc->smp)
+			smp_set_ops(mdesc->smp);
 		smp_init_cpus();
 	}
 #endif
@@ -897,10 +956,62 @@ static const char *hwcap_str[] = {
 	NULL
 };
 
+static const char *hwcap2_str[] = {
+	"aes",
+	"pmull",
+	"sha1",
+	"sha2",
+	"crc32",
+	NULL
+};
+
+static void c_show_features(struct seq_file *m, u32 cpuid)
+{
+	int j;
+
+        /* dump out the processor features */
+        seq_puts(m, "Features\t: ");
+
+        for (j = 0; hwcap_str[j]; j++)
+                if (elf_hwcap & (1 << j))
+                        seq_printf(m, "%s ", hwcap_str[j]);
+
+	for (j = 0; hwcap2_str[j]; j++)
+		if (elf_hwcap2 & (1 << j))
+			seq_printf(m, "%s ", hwcap2_str[j]);
+
+        seq_printf(m, "\nCPU implementer\t: 0x%02x\n", cpuid >> 24);
+        seq_printf(m, "CPU architecture: %s\n",
+                   proc_arch[cpu_architecture()]);
+
+        if ((cpuid & 0x0008f000) == 0x00000000) {
+                /* pre-ARM7 */
+                seq_printf(m, "CPU part\t: %07x\n", cpuid >> 4);
+        } else {
+                if ((cpuid & 0x0008f000) == 0x00007000) {
+                        /* ARM7 */
+                        seq_printf(m, "CPU variant\t: 0x%02x\n",
+                                   (cpuid >> 16) & 127);
+                } else {
+                        /* post-ARM7 */
+                        seq_printf(m, "CPU variant\t: 0x%x\n",
+                                   (cpuid >> 20) & 15);
+                }
+                seq_printf(m, "CPU part\t: 0x%03x\n",
+                           (cpuid >> 4) & 0xfff);
+        }
+        seq_printf(m, "CPU revision\t: %d\n\n", cpuid & 15);
+}
+
 static int c_show(struct seq_file *m, void *v)
 {
-	int i, j;
+	int i;
 	u32 cpuid;
+	int compat = config_enabled(CONFIG_COMPAT_CPUINFO);
+
+	if (compat)
+		seq_printf(m, "Processor\t: %s rev %d (%s)\n",
+			   cpu_name, read_cpuid_id() & 15, elf_platform);
 
 	for_each_online_cpu(i) {
 		/*
@@ -908,10 +1019,11 @@ static int c_show(struct seq_file *m, void *v)
 		 * online processors, looking for lines beginning with
 		 * "processor".  Give glibc what it expects.
 		 */
-		seq_printf(m, "processor\t: %d\n", i);
 		cpuid = is_smp() ? per_cpu(cpu_data, i).cpuid : read_cpuid_id();
-		seq_printf(m, "model name\t: %s rev %d (%s)\n",
-			   cpu_name, cpuid & 15, elf_platform);
+		if (!compat)
+			seq_printf(m, "Processor\t: %s rev %d (%s)\n",
+				   cpu_name, cpuid & 15, elf_platform);
+		seq_printf(m, "processor\t: %d\n", i);
 
 #if defined(CONFIG_SMP)
 		seq_printf(m, "BogoMIPS\t: %lu.%02lu\n",
@@ -922,36 +1034,14 @@ static int c_show(struct seq_file *m, void *v)
 			   loops_per_jiffy / (500000/HZ),
 			   (loops_per_jiffy / (5000/HZ)) % 100);
 #endif
-		/* dump out the processor features */
-		seq_puts(m, "Features\t: ");
-
-		for (j = 0; hwcap_str[j]; j++)
-			if (elf_hwcap & (1 << j))
-				seq_printf(m, "%s ", hwcap_str[j]);
-
-		seq_printf(m, "\nCPU implementer\t: 0x%02x\n", cpuid >> 24);
-		seq_printf(m, "CPU architecture: %s\n",
-			   proc_arch[cpu_architecture()]);
-
-		if ((cpuid & 0x0008f000) == 0x00000000) {
-			/* pre-ARM7 */
-			seq_printf(m, "CPU part\t: %07x\n", cpuid >> 4);
-		} else {
-			if ((cpuid & 0x0008f000) == 0x00007000) {
-				/* ARM7 */
-				seq_printf(m, "CPU variant\t: 0x%02x\n",
-					   (cpuid >> 16) & 127);
-			} else {
-				/* post-ARM7 */
-				seq_printf(m, "CPU variant\t: 0x%x\n",
-					   (cpuid >> 20) & 15);
-			}
-			seq_printf(m, "CPU part\t: 0x%03x\n",
-				   (cpuid >> 4) & 0xfff);
-		}
-		seq_printf(m, "CPU revision\t: %d\n\n", cpuid & 15);
+		if (!compat)
+			c_show_features(m, cpuid);
+                else
+			seq_printf(m, "\n");
 	}
 
+	if (compat)
+		c_show_features(m, cpuid);
 	seq_printf(m, "Hardware\t: %s\n", machine_name);
 	seq_printf(m, "Revision\t: %04x\n", system_rev);
 	seq_printf(m, "Serial\t\t: %08x%08x\n",

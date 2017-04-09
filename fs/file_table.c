@@ -31,6 +31,11 @@
 
 #include "internal.h"
 
+#define FILE_OVER_MAX
+#ifdef FILE_OVER_MAX
+extern void fd_show_open_files(pid_t pid, struct files_struct *files, struct fdtable *fdt);
+#endif
+
 /* sysctl tunables... */
 struct files_stat_struct files_stat = {
 	.max_files = NR_FILE
@@ -145,6 +150,29 @@ struct file *get_empty_filp(void)
 over:
 	/* Ran out of filps - report that */
 	if (get_nr_files() > old_max) {
+#ifdef FILE_OVER_MAX
+		static int fd_dump_all_files;
+
+		if (!fd_dump_all_files) {
+			struct task_struct *p;
+			struct files_struct *files;
+			pid_t pid;
+			fd_dump_all_files = 0x1;
+			for_each_process(p) {
+				files = p->files;
+				if (files) {
+					struct fdtable *fdt = files_fdtable(files);
+
+					if (fdt) {
+						pid_t pid = p->pid;
+						pr_err("[FDLEAK]dump FDs for [%d:%s]\n", pid,
+							p->comm);
+						fd_show_open_files(pid, files, fdt);
+					}
+				}
+			}
+		}
+#endif
 		pr_info("VFS: file-max limit %lu reached\n", get_max_files());
 		old_max = get_nr_files();
 	}
@@ -467,7 +495,7 @@ void mark_files_ro(struct super_block *sb)
 }
 
 void __init files_init(unsigned long mempages)
-{ 
+{
 	unsigned long n;
 
 	filp_cachep = kmem_cache_create("filp", sizeof(struct file), 0,
@@ -475,12 +503,12 @@ void __init files_init(unsigned long mempages)
 
 	/*
 	 * One file with associated inode and dcache is very roughly 1K.
-	 * Per default don't use more than 10% of our memory for files. 
-	 */ 
+	 * Per default don't use more than 10% of our memory for files.
+	 */
 
 	n = (mempages * (PAGE_SIZE / 1024)) / 10;
 	files_stat.max_files = max_t(unsigned long, n, NR_FILE);
 	files_defer_init();
 	lg_lock_init(&files_lglock, "files_lglock");
 	percpu_counter_init(&nr_files, 0);
-} 
+}

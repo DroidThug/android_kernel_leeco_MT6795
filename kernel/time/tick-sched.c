@@ -20,6 +20,9 @@
 #include <linux/profile.h>
 #include <linux/sched.h>
 #include <linux/module.h>
+#ifdef CONFIG_MTK_SCHED_RQAVG_US
+#include <linux/rq_stats.h>
+#endif
 #include <linux/irq_work.h>
 #include <linux/posix-timers.h>
 #include <linux/perf_event.h>
@@ -29,6 +32,18 @@
 #include "tick-internal.h"
 
 #include <trace/events/timer.h>
+
+#ifdef CONFIG_MTK_SCHED_RQAVG_US
+struct rq_data rq_info;
+#ifdef CONFIG_MTK_SCHED_RQAVG_US_ENABLE_WQ
+struct workqueue_struct *rq_wq;
+#endif
+spinlock_t rq_lock;
+#endif
+
+#ifdef CONFIG_MT_LOAD_BALANCE_PROFILER
+#include <mtlbprof/mtlbprof.h>
+#endif
 
 /*
  * Per cpu nohz control structure
@@ -435,12 +450,42 @@ update_ts_time_stats(int cpu, struct tick_sched *ts, ktime_t now, u64 *last_upda
 
 }
 
+static void
+update_ts_time_stats_wo_cpuoffline(int cpu, struct tick_sched *ts, ktime_t now, u64 *last_update_time)
+{
+	ktime_t delta;
+
+	if (ts->idle_active && (!ts->cpu_plug_off_flag)) {
+		delta = ktime_sub(now, ts->idle_entrytime_wo_cpuoffline);
+		if (nr_iowait_cpu(cpu) > 0)
+			ts->iowait_sleeptime_wo_cpuoffline = ktime_add(ts->iowait_sleeptime_wo_cpuoffline, delta);
+		else
+			ts->idle_sleeptime_wo_cpuoffline = ktime_add(ts->idle_sleeptime_wo_cpuoffline, delta);
+		ts->idle_entrytime_wo_cpuoffline = now;
+	}
+
+	if (last_update_time)
+		*last_update_time = ktime_to_us(now);
+
+}
+
+
+void tick_set_cpu_plugoff_flag(int flag)
+{
+	struct tick_sched *ts = &__get_cpu_var(tick_cpu_sched);
+	ts->cpu_plug_off_flag = flag;
+}
+
 static void tick_nohz_stop_idle(int cpu, ktime_t now)
 {
 	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
 
 	update_ts_time_stats(cpu, ts, now, NULL);
+	update_ts_time_stats_wo_cpuoffline(cpu, ts, now, NULL);
 	ts->idle_active = 0;
+#ifdef CONFIG_MT_LOAD_BALANCE_PROFILER
+	mt_lbprof_update_state(cpu, MT_LBPROF_NO_TASK_STATE);
+#endif
 
 	sched_clock_idle_wakeup_event(0);
 }
@@ -450,7 +495,12 @@ static ktime_t tick_nohz_start_idle(int cpu, struct tick_sched *ts)
 	ktime_t now = ktime_get();
 
 	ts->idle_entrytime = now;
+	ts->idle_entrytime_wo_cpuoffline = now;
 	ts->idle_active = 1;
+#ifdef CONFIG_MT_LOAD_BALANCE_PROFILER
+	mt_lbprof_update_state(cpu, MT_LBPROF_NO_TASK_STATE);
+#endif	
+
 	sched_clock_idle_sleep_event();
 	return now;
 }
@@ -496,6 +546,34 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_idle_time_us);
 
+u64 get_cpu_idle_time_us_wo_cpuoffline(int cpu, u64 *last_update_time)
+{
+	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
+	ktime_t now, idle;
+
+	if (!tick_nohz_enabled)
+		return -1;
+
+	now = ktime_get();
+	if (last_update_time) {
+		update_ts_time_stats_wo_cpuoffline(cpu, ts, now, last_update_time);
+		idle = ts->idle_sleeptime_wo_cpuoffline;
+	} else {
+		if (ts->idle_active && !nr_iowait_cpu(cpu) && cpu_online(cpu) && (!ts->cpu_plug_off_flag)) {
+			ktime_t delta = ktime_sub(now, ts->idle_entrytime_wo_cpuoffline);
+
+			idle = ktime_add(ts->idle_sleeptime_wo_cpuoffline, delta);
+		} else {
+			idle = ts->idle_sleeptime_wo_cpuoffline;
+		}
+	}
+
+	return ktime_to_us(idle);
+
+}
+EXPORT_SYMBOL_GPL(get_cpu_idle_time_us_wo_cpuoffline);
+
+
 /**
  * get_cpu_iowait_time_us - get the total iowait time of a cpu
  * @cpu: CPU number to query
@@ -535,6 +613,33 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 	return ktime_to_us(iowait);
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
+
+u64 get_cpu_iowait_time_us_wo_cpuoffline(int cpu, u64 *last_update_time)
+{
+	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
+	ktime_t now, iowait;
+
+	if (!tick_nohz_enabled)
+		return -1;
+
+	now = ktime_get();
+	if (last_update_time) {
+		update_ts_time_stats_wo_cpuoffline(cpu, ts, now, last_update_time);
+		iowait = ts->iowait_sleeptime_wo_cpuoffline;
+	} else {
+		if (ts->idle_active && nr_iowait_cpu(cpu) > 0 && cpu_online(cpu) && (!ts->cpu_plug_off_flag)) {
+			ktime_t delta = ktime_sub(now, ts->idle_entrytime_wo_cpuoffline);
+
+			iowait = ktime_add(ts->iowait_sleeptime_wo_cpuoffline, delta);
+		} else {
+			iowait = ts->iowait_sleeptime_wo_cpuoffline;
+		}
+	}
+
+	return ktime_to_us(iowait);
+}
+EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us_wo_cpuoffline);
+
 
 static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 					 ktime_t now, int cpu)
@@ -818,6 +923,8 @@ void tick_nohz_idle_enter(void)
 	ts->inidle = 1;
 	__tick_nohz_idle_enter(ts);
 
+	tick_set_cpu_plugoff_flag(0);
+
 	local_irq_enable();
 }
 EXPORT_SYMBOL_GPL(tick_nohz_idle_enter);
@@ -1079,6 +1186,54 @@ void tick_check_idle(int cpu)
  * High resolution timer specific code
  */
 #ifdef CONFIG_HIGH_RES_TIMERS
+
+#ifdef CONFIG_MTK_SCHED_RQAVG_US
+static void update_rq_stats(void)
+{
+	unsigned long jiffy_gap = 0;
+	unsigned int rq_avg = 0;
+	unsigned long flags = 0;
+
+    spin_lock_irqsave(&rq_lock, flags);
+
+	jiffy_gap = jiffies - rq_info.rq_poll_last_jiffy;
+	if (jiffy_gap >= rq_info.rq_poll_jiffies) {
+		if (!rq_info.rq_avg)
+			rq_info.rq_poll_total_jiffies = 0;
+
+		rq_avg = nr_running() * 10;
+
+		if (rq_info.rq_poll_total_jiffies) {
+			rq_avg = (rq_avg * jiffy_gap) +
+				(rq_info.rq_avg *
+				 rq_info.rq_poll_total_jiffies);
+			do_div(rq_avg,
+			       rq_info.rq_poll_total_jiffies + jiffy_gap);
+		}
+
+		rq_info.rq_avg =  rq_avg;
+		rq_info.rq_poll_total_jiffies += jiffy_gap;
+		rq_info.rq_poll_last_jiffy = jiffies;
+	}
+
+    spin_unlock_irqrestore(&rq_lock, flags);
+}
+
+#ifdef CONFIG_MTK_SCHED_RQAVG_US_ENABLE_WQ
+static void wakeup_user(void)
+{
+	unsigned long jiffy_gap;
+
+	jiffy_gap = jiffies - rq_info.def_timer_last_jiffy;
+
+	if (jiffy_gap >= rq_info.def_timer_jiffies) {
+		rq_info.def_timer_last_jiffy = jiffies;
+		queue_work(rq_wq, &rq_info.def_timer_work);
+	}
+}
+#endif /* CONFIG_MTK_SCHED_RQAVG_US_ENABLE_WQ */
+
+#endif /* CONFIG_MTK_SCHED_RQAVG_US */
 /*
  * We rearm the timer until we get disabled by the idle code.
  * Called with interrupts disabled.
@@ -1098,6 +1253,23 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 	 */
 	if (regs)
 		tick_sched_handle(ts, regs);
+
+#ifdef CONFIG_MTK_SCHED_RQAVG_US
+		if ((rq_info.init == 1) && (tick_do_timer_cpu == smp_processor_id())) {
+
+			/*
+			 * update run queue statistics
+			 */
+			update_rq_stats();
+
+#ifdef CONFIG_MTK_SCHED_RQAVG_US_ENABLE_WQ
+			/*
+			 * wakeup user if needed
+			 */
+			wakeup_user();
+#endif /* CONFIG_MTK_SCHED_RQAVG_US_ENABLE_WQ */
+		}
+#endif /* CONFIG_MTK_SCHED_RQAVG_US */
 
 	hrtimer_forward(timer, now, tick_period);
 
@@ -1166,7 +1338,8 @@ void tick_cancel_sched_timer(int cpu)
 		hrtimer_cancel(&ts->sched_timer);
 # endif
 
-	memset(ts, 0, sizeof(*ts));
+	/*memset(ts, 0, sizeof(*ts)); */ /*to avoid idle time clear to 0 after CPU plug off*/
+	ts->nohz_mode = NOHZ_MODE_INACTIVE;
 }
 #endif
 

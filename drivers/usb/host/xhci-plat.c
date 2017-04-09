@@ -14,8 +14,14 @@
 #include <linux/platform_device.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/dma-mapping.h>
 
 #include "xhci.h"
+
+#ifdef CONFIG_MTK_XHCI
+#include <linux/xhci/xhci-mtk.h>
+#include <linux/of.h>
+#endif
 
 static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
 {
@@ -25,6 +31,10 @@ static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
 	 * dev struct in order to setup MSI
 	 */
 	xhci->quirks |= XHCI_PLAT;
+	//CC: MTK host controller gives a spurious successful event after a
+	//    short transfer. Ignore it.
+	xhci->quirks |= XHCI_SPURIOUS_SUCCESS;
+	xhci->quirks |= XHCI_LPM_SUPPORT;
 }
 
 /* called during probe() after chip reset completes */
@@ -82,6 +92,19 @@ static const struct hc_driver xhci_plat_xhci_driver = {
 	.bus_resume =		xhci_bus_resume,
 };
 
+#if defined(CONFIG_MTK_LM_MODE)
+#define XHCI_DMA_BIT_MASK DMA_BIT_MASK(64)
+#else
+#define XHCI_DMA_BIT_MASK DMA_BIT_MASK(32)
+#endif
+
+static u64 xhci_dma_mask = XHCI_DMA_BIT_MASK;
+
+static void xhci_hcd_release (struct device *dev)
+{
+    printk(KERN_INFO "dev = 0x%p\n", dev);
+}
+
 static int xhci_plat_probe(struct platform_device *pdev)
 {
 	const struct hc_driver	*driver;
@@ -96,6 +119,20 @@ static int xhci_plat_probe(struct platform_device *pdev)
 
 	driver = &xhci_plat_xhci_driver;
 
+#ifdef CONFIG_MTK_XHCI  /* device tree support */
+	irq = platform_get_irq_byname(pdev, XHCI_DRIVER_NAME);
+	printk("%s(%d): %d\n", __func__, __LINE__, irq);
+	if(irq < 0)
+		return -ENODEV;
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, XHCI_BASE_REGS_ADDR_RES_NAME);
+	if (!res)
+		return -ENODEV;
+
+	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
+	pdev->dev.dma_mask = &xhci_dma_mask;
+	pdev->dev.release = xhci_hcd_release;
+#else
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return -ENODEV;
@@ -103,6 +140,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		return -ENODEV;
+#endif
 
 	hcd = usb_create_hcd(driver, &pdev->dev, dev_name(&pdev->dev));
 	if (!hcd)
@@ -125,7 +163,15 @@ static int xhci_plat_probe(struct platform_device *pdev)
 		goto release_mem_region;
 	}
 
+	printk("%s(%d): logic 0x%p, phys 0x%p\n", __func__, __LINE__,
+		(void *)(unsigned long)res->start, hcd->regs);
+
+	#ifdef CONFIG_MTK_XHCI
+	ret = usb_add_hcd(hcd, irq, IRQF_SHARED | IRQF_TRIGGER_LOW);
+	#else
 	ret = usb_add_hcd(hcd, irq, IRQF_SHARED);
+	#endif
+
 	if (ret)
 		goto unmap_registers;
 
@@ -145,7 +191,11 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	 */
 	*((struct xhci_hcd **) xhci->shared_hcd->hcd_priv) = xhci;
 
+	#ifdef CONFIG_MTK_XHCI
+    ret = usb_add_hcd(xhci->shared_hcd, irq, IRQF_SHARED | IRQF_TRIGGER_LOW);
+    #else
 	ret = usb_add_hcd(xhci->shared_hcd, irq, IRQF_SHARED);
+    #endif
 	if (ret)
 		goto put_usb3_hcd;
 
@@ -181,16 +231,31 @@ static int xhci_plat_remove(struct platform_device *dev)
 	iounmap(hcd->regs);
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
 	usb_put_hcd(hcd);
+	#ifdef CONFIG_MTK_XHCI
+	mtk_xhci_reset(xhci);
+	#endif
 	kfree(xhci);
 
 	return 0;
 }
+
+#ifdef CONFIG_MTK_XHCI
+static const struct of_device_id mtk_xhci_of_match[] = {
+	{
+		.compatible = "mediatek,USB3_XHCI",
+	},
+	{ },
+};
+#endif
 
 static struct platform_driver usb_xhci_driver = {
 	.probe	= xhci_plat_probe,
 	.remove	= xhci_plat_remove,
 	.driver	= {
 		.name = "xhci-hcd",
+#ifdef CONFIG_MTK_XHCI
+        .of_match_table = of_match_ptr(mtk_xhci_of_match),
+#endif
 	},
 };
 MODULE_ALIAS("platform:xhci-hcd");

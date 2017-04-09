@@ -73,6 +73,9 @@ static int scan_for_master(struct ubifs_info *c)
 		   (void *)snod->node + UBIFS_CH_SZ,
 		   UBIFS_MST_NODE_SZ - UBIFS_CH_SZ))
 		goto out;
+	/* MTK force recovery master node when ECC error */
+	if(sleb->ecc == 1)
+		goto out;
 	c->mst_offs = offs;
 	ubifs_scan_destroy(sleb);
 	return 0;
@@ -270,6 +273,12 @@ int ubifs_read_master(struct ubifs_info *c)
 			 * Note, we do not free 'c->mst_node' here because the
 			 * unmount routine will take care of this.
 			 */
+			return err;
+	} else if ((!c->ro_mount)&&(c->mst_node->flags & cpu_to_le32(UBIFS_MST_DIRTY)) != 0) {  
+		/* MTK force recover master node, when unclean reboot */
+		ubifs_msg("recovery needed, recovery master node");
+		err = ubifs_recover_master_node(c);
+		if(err)
 			return err;
 	}
 

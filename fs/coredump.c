@@ -512,14 +512,23 @@ void do_coredump(siginfo_t *siginfo)
 	audit_core_dumps(siginfo->si_signo);
 
 	binfmt = mm->binfmt;
-	if (!binfmt || !binfmt->core_dump)
+	if (!binfmt || !binfmt->core_dump) {
+		printk(KERN_WARNING "Skip process %d(%s) core dump(!binfmt?%s)\n",
+			task_tgid_vnr(current), current->comm, (!binfmt) ? "yes":"no");
 		goto fail;
-	if (!__get_dumpable(cprm.mm_flags))
+	}
+	if (!__get_dumpable(cprm.mm_flags)) {
+		printk(KERN_WARNING "Skip process %d(%s) core dump(mm_flags:%x)\n",
+			task_tgid_vnr(current), current->comm, (unsigned int)cprm.mm_flags);
 		goto fail;
+	}
 
 	cred = prepare_creds();
-	if (!cred)
+	if (!cred) {
+		printk(KERN_WARNING "Skip process %d(%s) core dump(prepare_creds failed)\n",
+			task_tgid_vnr(current), current->comm);
 		goto fail;
+	}
 	/*
 	 * We cannot trust fsuid as being the "true" uid of the process
 	 * nor do we know its entire history. We only know it was tainted
@@ -656,9 +665,12 @@ void do_coredump(siginfo_t *siginfo)
 		put_files_struct(displaced);
 	if (!dump_interrupted()) {
 		file_start_write(cprm.file);
+		printk(KERN_WARNING "before %d core dump\n", current->pid);
 		core_dumped = binfmt->core_dump(&cprm);
 		file_end_write(cprm.file);
 	}
+	else
+		printk(KERN_WARNING "before %d core dump interrupted error\n", current->pid);
 	if (ispipe && core_pipe_limit)
 		wait_for_dump_helpers(cprm.file);
 close_fail:
@@ -685,9 +697,26 @@ fail:
  */
 int dump_write(struct file *file, const void *addr, int nr)
 {
-	return !dump_interrupted() &&
-		access_ok(VERIFY_READ, addr, nr) &&
-		file->f_op->write(file, addr, nr, &file->f_pos) == nr;
+	if (!dump_interrupted()) {
+		if (access_ok(VERIFY_READ, addr, nr)) {
+			int pipe_ret = file->f_op->write(file, addr, nr, &file->f_pos);
+			if (pipe_ret == nr) {
+				return 1;
+			}
+			if (pipe_ret == -ERESTARTSYS) {
+			}
+			else {
+				printk(KERN_WARNING "coredump(%d): pipe dump write error nr:%d, ret:%d\n", current->pid, nr, pipe_ret);
+			}
+		}
+		else {
+			printk(KERN_WARNING "coredump(%d): access verify error\n", current->pid);
+		}
+	}
+	else {
+		printk(KERN_WARNING "coredump(%d): interrupted error\n", current->pid);
+	}
+	return 0;
 }
 EXPORT_SYMBOL(dump_write);
 

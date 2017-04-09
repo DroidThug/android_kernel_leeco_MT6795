@@ -17,6 +17,8 @@
 #include <linux/kobj_map.h>
 #include <linux/mutex.h>
 #include <linux/idr.h>
+#include <linux/ctype.h>
+#include <linux/fs_uuid.h>
 #include <linux/log2.h>
 #include <linux/pm_runtime.h>
 
@@ -982,6 +984,7 @@ static DEVICE_ATTR(ext_range, S_IRUGO, disk_ext_range_show, NULL);
 static DEVICE_ATTR(removable, S_IRUGO, disk_removable_show, NULL);
 static DEVICE_ATTR(ro, S_IRUGO, disk_ro_show, NULL);
 static DEVICE_ATTR(size, S_IRUGO, part_size_show, NULL);
+static DEVICE_ATTR(emmcsize, S_IRUGO, part_emmcsize_show, NULL);
 static DEVICE_ATTR(alignment_offset, S_IRUGO, disk_alignment_offset_show, NULL);
 static DEVICE_ATTR(discard_alignment, S_IRUGO, disk_discard_alignment_show,
 		   NULL);
@@ -1004,6 +1007,7 @@ static struct attribute *disk_attrs[] = {
 	&dev_attr_removable.attr,
 	&dev_attr_ro.attr,
 	&dev_attr_size.attr,
+	&dev_attr_emmcsize.attr,
 	&dev_attr_alignment_offset.attr,
 	&dev_attr_discard_alignment.attr,
 	&dev_attr_capability.attr,
@@ -1116,6 +1120,22 @@ static void disk_release(struct device *dev)
 		blk_put_queue(disk->queue);
 	kfree(disk);
 }
+
+static int disk_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+	struct gendisk *disk = dev_to_disk(dev);
+	struct disk_part_iter piter;
+	struct hd_struct *part;
+	int cnt = 0;
+
+	disk_part_iter_init(&piter, disk, 0);
+	while((part = disk_part_iter_next(&piter)))
+		cnt++;
+	disk_part_iter_exit(&piter);
+	add_uevent_var(env, "NPARTS=%u", cnt);
+	return 0;
+}
+
 struct class block_class = {
 	.name		= "block",
 };
@@ -1135,6 +1155,7 @@ static struct device_type disk_type = {
 	.groups		= disk_attr_groups,
 	.release	= disk_release,
 	.devnode	= block_devnode,
+	.uevent		= disk_uevent,
 };
 
 #ifdef CONFIG_PROC_FS
@@ -1385,6 +1406,87 @@ int invalidate_partition(struct gendisk *disk, int partno)
 
 EXPORT_SYMBOL(invalidate_partition);
 
+dev_t blk_lookup_fs_info(struct fs_info *seek)
+{
+	dev_t devt = MKDEV(0, 0);
+	struct class_dev_iter iter;
+	struct device *dev;
+	int best_score = 0;
+
+	class_dev_iter_init(&iter, &block_class, NULL, &disk_type);
+	while (best_score < 3 && (dev = class_dev_iter_next(&iter))) {
+		struct gendisk *disk = dev_to_disk(dev);
+		struct disk_part_iter piter;
+		struct hd_struct *part;
+
+		disk_part_iter_init(&piter, disk, DISK_PITER_INCL_PART0);
+
+		while (best_score < 3 && (part = disk_part_iter_next(&piter))) {
+			int score = part_matches_fs_info(part, seek);
+			if (score > best_score) {
+				devt = part_devt(part);
+				best_score = score;
+			}
+		}
+		disk_part_iter_exit(&piter);
+	}
+	class_dev_iter_exit(&iter);
+	return devt;
+}
+EXPORT_SYMBOL_GPL(blk_lookup_fs_info);
+
+/* Caller uses NULL, key to start. For each match found, we return a bdev on
+ * which we have done blkdev_get, and we do the blkdev_put on block devices
+ * that are passed to us. When no more matches are found, we return NULL.
+ */
+struct block_device *next_bdev_of_type(struct block_device *last,
+	const char *key)
+{
+	dev_t devt = MKDEV(0, 0);
+	struct class_dev_iter iter;
+	struct device *dev;
+	struct block_device *next = NULL, *bdev;
+	int got_last = 0;
+
+	if (!key)
+		goto out;
+
+	class_dev_iter_init(&iter, &block_class, NULL, &disk_type);
+	while (!devt && (dev = class_dev_iter_next(&iter))) {
+		struct gendisk *disk = dev_to_disk(dev);
+		struct disk_part_iter piter;
+		struct hd_struct *part;
+
+		disk_part_iter_init(&piter, disk, DISK_PITER_INCL_PART0);
+
+		while ((part = disk_part_iter_next(&piter))) {
+			bdev = bdget(part_devt(part));
+			if (last && !got_last) {
+				if (last == bdev)
+					got_last = 1;
+				continue;
+			}
+
+			if (blkdev_get(bdev, FMODE_READ, 0))
+				continue;
+
+			if (bdev_matches_key(bdev, key)) {
+				next = bdev;
+				break;
+			}
+
+			blkdev_put(bdev, FMODE_READ);
+		}
+		disk_part_iter_exit(&piter);
+	}
+	class_dev_iter_exit(&iter);
+out:
+	if (last)
+		blkdev_put(last, FMODE_READ);
+	return next;
+}
+EXPORT_SYMBOL_GPL(next_bdev_of_type);
+
 /*
  * Disk events - monitor disk events like media change and eject request.
  */
@@ -1405,11 +1507,17 @@ struct disk_events {
 static const char *disk_events_strs[] = {
 	[ilog2(DISK_EVENT_MEDIA_CHANGE)]	= "media_change",
 	[ilog2(DISK_EVENT_EJECT_REQUEST)]	= "eject_request",
+#ifdef CONFIG_MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT	
+	[ilog2(DISK_EVENT_MEDIA_DISAPPEAR)]     = "media_disappear",
+#endif
 };
 
 static char *disk_uevents[] = {
 	[ilog2(DISK_EVENT_MEDIA_CHANGE)]	= "DISK_MEDIA_CHANGE=1",
 	[ilog2(DISK_EVENT_EJECT_REQUEST)]	= "DISK_EJECT_REQUEST=1",
+#ifdef CONFIG_MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT	
+	[ilog2(DISK_EVENT_MEDIA_DISAPPEAR)] = "DISK_EVENT_MEDIA_DISAPPEAR=1",	
+#endif	
 };
 
 /* list of all disk_events */
@@ -1417,7 +1525,10 @@ static DEFINE_MUTEX(disk_events_mutex);
 static LIST_HEAD(disk_events);
 
 /* disable in-kernel polling by default */
-static unsigned long disk_events_dfl_poll_msecs	= 0;
+//ALPS00319570, CL955952 merged back, begin
+//static unsigned long disk_events_dfl_poll_msecs	= 0;    //original
+static unsigned long disk_events_dfl_poll_msecs	= 2000;
+//ALPS00319570, CL955952 merged back, end
 
 static unsigned long disk_events_poll_jiffies(struct gendisk *disk)
 {

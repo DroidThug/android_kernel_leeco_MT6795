@@ -34,6 +34,10 @@ static HLIST_HEAD(clk_root_list);
 static HLIST_HEAD(clk_orphan_list);
 static LIST_HEAD(clk_notifier_list);
 
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#define MT_CCF_DEBUG	0
+#endif /* !defined(CONFIG_MTK_LEGACY) */
+
 /***           locking             ***/
 static void clk_prepare_lock(void)
 {
@@ -686,6 +690,12 @@ void __clk_unprepare(struct clk *clk)
 	if (!clk)
 		return;
 
+#if MT_CCF_DEBUG && !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+	if (!strcmp(__clk_get_name(clk), "mm_disp0_smi_common"))
+		pr_debug("[CCF] %s: %s, prepare/enable_count=%u/%u\n", __func__,
+			__clk_get_name(clk), clk->prepare_count,
+			clk->enable_count);
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	if (WARN_ON(clk->prepare_count == 0))
 		return;
 
@@ -726,6 +736,12 @@ int __clk_prepare(struct clk *clk)
 	if (!clk)
 		return 0;
 
+#if MT_CCF_DEBUG && !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+	if (!strcmp(__clk_get_name(clk), "mm_disp0_smi_common"))
+		pr_debug("[CCF] %s: %s, prepare/enable_count=%u/%u\n", __func__,
+				__clk_get_name(clk), clk->prepare_count,
+				clk->enable_count);
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	if (clk->prepare_count == 0) {
 		ret = __clk_prepare(clk->parent);
 		if (ret)
@@ -777,6 +793,12 @@ static void __clk_disable(struct clk *clk)
 	if (WARN_ON(IS_ERR(clk)))
 		return;
 
+#if MT_CCF_DEBUG && !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+	if (!strcmp(__clk_get_name(clk), "mm_disp0_smi_common"))
+		pr_debug("[CCF] %s: %s, prepare/enable_count=%u/%u\n", __func__,
+			__clk_get_name(clk), clk->prepare_count,
+			clk->enable_count);
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	if (WARN_ON(clk->enable_count == 0))
 		return;
 
@@ -818,6 +840,12 @@ static int __clk_enable(struct clk *clk)
 	if (!clk)
 		return 0;
 
+#if MT_CCF_DEBUG && !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+	if (!strcmp(__clk_get_name(clk), "mm_disp0_smi_common"))
+		pr_debug("[CCF] %s: %s, prepare/enable_count=%u/%u\n", __func__,
+			__clk_get_name(clk), clk->prepare_count,
+			clk->enable_count);
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	if (WARN_ON(clk->prepare_count == 0))
 		return -ESHUTDOWN;
 

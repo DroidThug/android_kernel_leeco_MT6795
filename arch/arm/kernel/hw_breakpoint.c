@@ -167,7 +167,7 @@ static int debug_arch_supported(void)
 /* Can we determine the watchpoint access type from the fsr? */
 static int debug_exception_updates_fsr(void)
 {
-	return 0;
+	return get_debug_arch() >= ARM_DEBUG_ARCH_V8;
 }
 
 /* Determine number of WRP registers available. */
@@ -257,6 +257,7 @@ static int enable_monitor_mode(void)
 		break;
 	case ARM_DEBUG_ARCH_V7_ECP14:
 	case ARM_DEBUG_ARCH_V7_1:
+	case ARM_DEBUG_ARCH_V8:
 		ARM_DBG_WRITE(c0, c2, 2, (dscr | ARM_DSCR_MDBGEN));
 		isb();
 		break;
@@ -930,6 +931,11 @@ static void reset_ctrl_regs(void *unused)
 	int i, raw_num_brps, err = 0, cpu = smp_processor_id();
 	u32 val;
 
+#ifdef CONFIG_MEDIATEK_SOLUTION
+	/* mediatek uses its own watchpoint & breakpoint save/restore flow,
+	   so that we do not need kernel's reset flow */
+	return;
+#endif
 	/*
 	 * v7 debug contains save and restore registers so that debug state
 	 * can be maintained across low-power modes without leaving the debug
@@ -1049,7 +1055,8 @@ static struct notifier_block dbg_cpu_pm_nb = {
 
 static void __init pm_init(void)
 {
-	cpu_pm_register_notifier(&dbg_cpu_pm_nb);
+	if (has_ossr)
+		cpu_pm_register_notifier(&dbg_cpu_pm_nb);
 }
 #else
 static inline void pm_init(void)

@@ -217,16 +217,45 @@ ENTRY(__boot_cpu_mode)
 	.quad	PAGE_OFFSET
 
 #ifdef CONFIG_SMP
-	.pushsection    .smp.pen.text, "ax"
 	.align	3
 1:	.quad	.
 	.quad	secondary_holding_pen_release
 
+
+/*FIXME: MTK only*/
+CCI400_SI3_SNOOP_CONTROL:
+.long 0x10394000
+CCI400_STATUS:
+.long 0x1039000C
+MISCDBG:
+.long 0x1020020C
 	/*
 	 * This provides a "holding pen" for platforms to hold all secondary
 	 * cores are held until we're ready for them to initialise.
 	 */
 ENTRY(secondary_holding_pen)
+	mrs	x0, mpidr_el1	
+	ubfx	x0, x0, #8, #4
+	cmp	x0, #0
+	b.eq	cluster0
+	ldr     w2, MISCDBG
+	ldr     w1, [x2]
+	bic     w1, w1, #0x10
+	str     w1, [x2]
+	ldr     w2, CCI400_SI3_SNOOP_CONTROL
+	ldr     w1, [x2]
+	orr     w1, w1, #0x3
+	str     w1, [x2]
+	ldr     w2, CCI400_STATUS
+	b       3f
+0:
+	dsb	sy
+3:
+	ldr     w1, [x2]
+	tst     w1, #1
+	bne     0b
+
+cluster0:
 	bl	__calc_phys_offset		// x24=phys offset
 	bl	el2_setup			// Drop to EL1
 	mrs	x0, mpidr_el1
@@ -242,7 +271,16 @@ pen:	ldr	x4, [x3]
 	wfe
 	b	pen
 ENDPROC(secondary_holding_pen)
-	.popsection
+
+	/*
+	 * Secondary entry point that jumps straight into the kernel. Only to
+	 * be used where CPUs are brought online dynamically by the kernel.
+	 */
+ENTRY(secondary_entry)
+	bl	__calc_phys_offset		// x2=phys offset
+	bl	el2_setup			// Drop to EL1
+	b	secondary_startup
+ENDPROC(secondary_entry)
 
 ENTRY(secondary_startup)
 	/*
@@ -307,7 +345,7 @@ ENDPROC(__turn_mmu_on)
 /*
  * Calculate the start of physical memory.
  */
-__calc_phys_offset:
+ENTRY(__calc_phys_offset)
 	adr	x0, 1f
 	ldp	x1, x2, [x0]
 	sub	x28, x0, x1			// x28 = PHYS_OFFSET - PAGE_OFFSET

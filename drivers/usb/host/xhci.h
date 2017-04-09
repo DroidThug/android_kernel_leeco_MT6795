@@ -33,6 +33,7 @@
 #include	"xhci-ext-caps.h"
 #include "pci-quirks.h"
 
+
 /* xHCI PCI Configuration Registers */
 #define XHCI_SBRN_OFFSET	(0x60)
 
@@ -679,6 +680,14 @@ struct xhci_ep_ctx {
 /* deq bitmasks */
 #define EP_CTX_CYCLE_MASK		(1 << 0)
 
+#ifdef CONFIG_MTK_XHCI
+/* mtk scheduler bitmasks */
+#define BPKTS(p)	((p) & 0x3f)
+#define BCSCOUNT(p)	(((p) & 0x7) << 8)
+#define BBM(p)		((p) << 11)
+#define BOFFSET(p)	((p) & 0x3fff)
+#define BREPEAT(p)	(((p) & 0x7fff) << 16)
+#endif
 
 /**
  * struct xhci_input_control_context
@@ -1412,6 +1421,12 @@ struct xhci_hcd {
 	/* Our HCD's current interrupter register set */
 	struct	xhci_intr_reg __iomem *ir_set;
 
+	#ifdef CONFIG_MTK_XHCI
+	unsigned long base_regs;
+	unsigned long sif_regs;
+	unsigned long sif2_regs;
+	#endif
+
 	/* Cached register copies of read-only HC data */
 	__u32		hcs_params1;
 	__u32		hcs_params2;
@@ -1498,7 +1513,9 @@ struct xhci_hcd {
 #define	XHCI_LINK_TRB_QUIRK	(1 << 0)
 #define XHCI_RESET_EP_QUIRK	(1 << 1)
 #define XHCI_NEC_HOST		(1 << 2)
+#ifndef CONFIG_MTK_XHCI
 #define XHCI_AMD_PLL_FIX	(1 << 3)
+#endif
 #define XHCI_SPURIOUS_SUCCESS	(1 << 4)
 /*
  * Certain Intel host controllers have a limit to the number of endpoint
@@ -1513,7 +1530,9 @@ struct xhci_hcd {
 #define XHCI_BROKEN_MSI		(1 << 6)
 #define XHCI_RESET_ON_RESUME	(1 << 7)
 #define	XHCI_SW_BW_CHECKING	(1 << 8)
+#ifndef CONFIG_MTK_XHCI
 #define XHCI_AMD_0x96_HOST	(1 << 9)
+#endif
 #define XHCI_TRUST_TX_LENGTH	(1 << 10)
 #define XHCI_LPM_SUPPORT	(1 << 11)
 #define XHCI_INTEL_HOST		(1 << 12)
@@ -1575,12 +1594,12 @@ static inline struct usb_hcd *xhci_to_hcd(struct xhci_hcd *xhci)
 /* TODO: copied from ehci.h - can be refactored? */
 /* xHCI spec says all registers are little endian */
 static inline unsigned int xhci_readl(const struct xhci_hcd *xhci,
-		__le32 __iomem *regs)
+		void __iomem *regs)
 {
 	return readl(regs);
 }
 static inline void xhci_writel(struct xhci_hcd *xhci,
-		const unsigned int val, __le32 __iomem *regs)
+		const unsigned int val, void __iomem *regs)
 {
 	writel(val, regs);
 }

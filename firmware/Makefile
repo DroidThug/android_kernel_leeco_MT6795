@@ -26,6 +26,15 @@ fw-shipped- += acenic/tg1.bin
 else
 acenic-objs := acenic/tg1.bin acenic/tg2.bin
 endif
+# objcopy -I binary -O ihex <firmware_name>.img startup_fw_update.img.ihex
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S3508) += synaptics/startup_fw_lens.img
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S3508) += synaptics/startup_fw_ofilm.img
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S3508) += synaptics/startup_fw_lens_gff.img
+fw-shipped-$(CONFIG_MTK_SYNAPTICS_3320) += synaptics/startup_fw_auo.img
+fw-shipped-$(CONFIG_MTK_SYNAPTICS_3320) += synaptics/startup_fw_boe.img
+fw-shipped-$(CONFIG_MTK_SYNAPTICS_3320U) += synaptics/startup_fw_truly.img
+fw-shipped-$(CONFIG_MTK_ATMEL_MXT) += 30AA.fw
+
 fw-shipped-$(CONFIG_ACENIC) += $(acenic-objs)
 fw-shipped-$(CONFIG_ADAPTEC_STARFIRE) += adaptec/starfire_rx.bin \
 					 adaptec/starfire_tx.bin

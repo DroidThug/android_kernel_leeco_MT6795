@@ -1695,7 +1695,9 @@ static int lpt_init_wr(struct ubifs_info *c)
 	if (!c->ltab_cmt)
 		return -ENOMEM;
 
-	c->lpt_buf = vmalloc(c->leb_size);
+	if(c->lpt_buf == NULL) {
+		c->lpt_buf = vmalloc(c->leb_size);
+	}
 	if (!c->lpt_buf)
 		return -ENOMEM;
 

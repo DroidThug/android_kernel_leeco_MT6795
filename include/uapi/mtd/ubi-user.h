@@ -188,6 +188,8 @@
 /* Set an UBI volume property */
 #define UBI_IOCSETVOLPROP _IOW(UBI_VOL_IOC_MAGIC, 6, \
 			       struct ubi_set_vol_prop_req)
+/* Get the PEB that LEB mapping to command */
+#define UBI_IOCLBMAP _IOR(UBI_VOL_IOC_MAGIC, 7, __s32)
 
 /* Maximum MTD device name length supported by UBI */
 #define MAX_UBI_MTD_NAME_LEN 127

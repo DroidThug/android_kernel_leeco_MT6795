@@ -66,6 +66,12 @@ static int proc_do_uts_string(ctl_table *table, int write,
 static DEFINE_CTL_TABLE_POLL(hostname_poll);
 static DEFINE_CTL_TABLE_POLL(domainname_poll);
 
+#ifdef CONFIG_64BIT
+static int osbit = 64;
+#else
+static int osbit = 32;
+#endif
+
 static struct ctl_table uts_kern_table[] = {
 	{
 		.procname	= "ostype",
@@ -89,6 +95,20 @@ static struct ctl_table uts_kern_table[] = {
 		.proc_handler	= proc_do_uts_string,
 	},
 	{
+		.procname	= "machine",
+		.data		= init_uts_ns.name.machine,
+		.maxlen		= sizeof(init_uts_ns.name.machine),
+		.mode		= 0444,
+		.proc_handler	= proc_do_uts_string,
+	},
+	{
+		.procname	= "osbit",
+		.data		= &osbit,
+		.maxlen		= sizeof(int),
+		.mode		= 0444,
+		.proc_handler	= proc_dointvec_minmax,
+	},
+	{
 		.procname	= "hostname",
 		.data		= init_uts_ns.name.nodename,
 		.maxlen		= sizeof(init_uts_ns.name.nodename),
@@ -104,6 +124,7 @@ static struct ctl_table uts_kern_table[] = {
 		.proc_handler	= proc_do_uts_string,
 		.poll		= &domainname_poll,
 	},
+
 	{}
 };
 

@@ -228,6 +228,7 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	if (enabled)
 		writel_relaxed(enablemask, base + GIC_DIST_ENABLE_SET + enableoff);
 
+
 	raw_spin_unlock(&irq_controller_lock);
 
 	return 0;
@@ -360,6 +361,7 @@ void __init gic_cascade_irq(unsigned int gic_nr, unsigned int irq)
 	irq_set_chained_handler(irq, gic_handle_cascade_irq);
 }
 
+/*
 static u8 gic_get_cpumask(struct gic_chip_data *gic)
 {
 	void __iomem *base = gic_data_dist_base(gic);
@@ -378,6 +380,7 @@ static u8 gic_get_cpumask(struct gic_chip_data *gic)
 
 	return mask;
 }
+*/
 
 static void __init gic_dist_init(struct gic_chip_data *gic)
 {
@@ -397,7 +400,9 @@ static void __init gic_dist_init(struct gic_chip_data *gic)
 	/*
 	 * Set all global interrupts to this CPU only.
 	 */
-	cpumask = gic_get_cpumask(gic);
+	//cpumask = gic_get_cpumask(gic);
+	/*FIXME*/
+	cpumask = 1 << smp_processor_id();
 	cpumask |= cpumask << 8;
 	cpumask |= cpumask << 16;
 	for (i = 32; i < gic_irqs; i += 4)
@@ -430,7 +435,9 @@ static void __cpuinit gic_cpu_init(struct gic_chip_data *gic)
 	 * Get what the GIC says our CPU mask is.
 	 */
 	BUG_ON(cpu >= NR_GIC_CPU_IF);
-	cpu_mask = gic_get_cpumask(gic);
+	//cpu_mask = gic_get_cpumask(gic);
+	//FIXME
+	cpu_mask = 1 << smp_processor_id();
 	gic_cpu_map[cpu] = cpu_mask;
 
 	/*
@@ -706,6 +713,17 @@ static int gic_irq_domain_xlate(struct irq_domain *d,
 	return 0;
 }
 
+void gic_register_sgi(unsigned int gic_nr, int irq)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+	if (desc)
+		desc->irq_data.hwirq = irq;
+	irq_set_chip_and_handler(irq, &gic_chip,
+				 handle_fasteoi_irq);
+	set_irq_flags(irq, IRQF_VALID | IRQF_PROBE);
+	irq_set_chip_data(irq, &gic_data[gic_nr]);
+}
+
 #ifdef CONFIG_SMP
 static int __cpuinit gic_secondary_init(struct notifier_block *nfb,
 					unsigned long action, void *hcpu)
@@ -834,7 +852,7 @@ static int gic_cnt __initdata;
 int __init gic_of_init(struct device_node *node, struct device_node *parent)
 {
 	void __iomem *cpu_base;
-	void __iomem *dist_base;
+	void __iomem *dist_base; 
 	u32 percpu_offset;
 	int irq;
 
@@ -845,7 +863,7 @@ int __init gic_of_init(struct device_node *node, struct device_node *parent)
 	WARN(!dist_base, "unable to map gic dist registers\n");
 
 	cpu_base = of_iomap(node, 1);
-	WARN(!cpu_base, "unable to map gic cpu registers\n");
+	WARN(!cpu_base, "unable to map gic cpu registers\n"); 
 
 	if (of_property_read_u32(node, "cpu-offset", &percpu_offset))
 		percpu_offset = 0;

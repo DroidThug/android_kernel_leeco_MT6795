@@ -25,7 +25,6 @@
 #include <linux/slab.h>
 #include <linux/mutex.h>
 
-
 #ifdef CONFIG_UNIX98_PTYS
 static struct tty_driver *ptm_driver;
 static struct tty_driver *pts_driver;

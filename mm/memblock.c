@@ -19,6 +19,8 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/memblock.h>
+#include <linux/kallsyms.h>
+#include <mach/mtk_memcfg.h>
 
 static struct memblock_region memblock_memory_init_regions[INIT_MEMBLOCK_REGIONS] __initdata_memblock;
 static struct memblock_region memblock_reserved_init_regions[INIT_MEMBLOCK_REGIONS] __initdata_memblock;
@@ -554,11 +556,40 @@ int __init_memblock memblock_free(phys_addr_t base, phys_addr_t size)
 int __init_memblock memblock_reserve(phys_addr_t base, phys_addr_t size)
 {
 	struct memblock_type *_rgn = &memblock.reserved;
+	char symname[KSYM_NAME_LEN];
 
 	memblock_dbg("memblock_reserve: [%#016llx-%#016llx] %pF\n",
 		     (unsigned long long)base,
 		     (unsigned long long)base + size,
 		     (void *)_RET_IP_);
+
+	if (lookup_symbol_name(_RET_IP_, symname) >= 0) {
+		/* filter common case */
+		if ((!strcmp(symname, "memblock_alloc_base_nid")) ||
+			(!strcmp(symname, "arm_mm_memblock_reserve")) ||
+			(!strcmp(symname, "arm64_memblock_init")) ||
+			(!strcmp(symname, "__alloc_memory_core_early")) ||
+			(!strcmp(symname, "arm_memblock_init"))) {
+		} else {
+			MTK_MEMCFG_LOG_AND_PRINTK(KERN_ALERT"[memblock]%pf: "
+					"0x%08llx - 0x%08llx (0x%08llx)\n",
+				(void *)_RET_IP_,
+				(unsigned long long)base,
+				(unsigned long long)base + size - 1,
+				(unsigned long long)size);
+		}
+	}
+
+	if (memblock_is_region_reserved(base, size)) {
+		/* trap memory reserve conflict */
+		mtk_memcfg_late_warning(WARN_MEMBLOCK_CONFLICT);
+		MTK_MEMCFG_LOG_AND_PRINTK("[rsv conflict]%pS: "
+			"0x%08llx - 0x%08llx (0x%08llx)\n",
+			__builtin_return_address(0),
+			(unsigned long long)base,
+			(unsigned long long)base + size,
+			(unsigned long long)size);
+	} 
 
 	return memblock_add_region(_rgn, base, size, MAX_NUMNODES);
 }
@@ -776,7 +807,8 @@ static phys_addr_t __init memblock_alloc_base_nid(phys_addr_t size,
 		align = __alignof__(long long);
 
 	/* align @size to avoid excessive fragmentation on reserved array */
-	size = round_up(size, align);
+	/* do not align size, we need every available memory */
+	//size = round_up(size, align);
 
 	found = memblock_find_in_range_node(0, max_addr, size, align, nid);
 	if (found && !memblock_reserve(found, size))

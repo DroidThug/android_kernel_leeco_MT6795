@@ -38,6 +38,7 @@
 #include <linux/uio.h>
 #include <linux/uaccess.h>
 #include <linux/module.h>
+#include <linux/compat.h>
 #include <sound/core.h>
 #include <sound/initval.h>
 #include <sound/compress_params.h>
@@ -490,9 +491,6 @@ static int snd_compress_check_input(struct snd_compr_params *params)
 	if (params->codec.ch_in == 0 || params->codec.ch_out == 0)
 		return -EINVAL;
 
-	if (!(params->codec.sample_rate & SNDRV_PCM_RATE_8000_192000))
-		return -EINVAL;
-
 	return 0;
 }
 
@@ -839,6 +837,42 @@ static long snd_compr_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	return retval;
 }
 
+
+/*
+ * ioctl32 compat
+ */
+#ifdef CONFIG_COMPAT
+
+static long snd_compr_ioctl_compat(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	switch (_IOC_NR(cmd)) {
+	case _IOC_NR(SNDRV_COMPRESS_IOCTL_VERSION):
+	case _IOC_NR(SNDRV_COMPRESS_GET_CAPS):
+	case _IOC_NR(SNDRV_COMPRESS_GET_CODEC_CAPS):
+	case _IOC_NR(SNDRV_COMPRESS_SET_PARAMS):
+	case _IOC_NR(SNDRV_COMPRESS_GET_PARAMS):
+	case _IOC_NR(SNDRV_COMPRESS_SET_METADATA):
+	case _IOC_NR(SNDRV_COMPRESS_GET_METADATA):
+	case _IOC_NR(SNDRV_COMPRESS_TSTAMP):
+	case _IOC_NR(SNDRV_COMPRESS_AVAIL):
+	case _IOC_NR(SNDRV_COMPRESS_PAUSE):
+	case _IOC_NR(SNDRV_COMPRESS_RESUME):
+	case _IOC_NR(SNDRV_COMPRESS_START):
+	case _IOC_NR(SNDRV_COMPRESS_STOP):
+	case _IOC_NR(SNDRV_COMPRESS_DRAIN):
+	case _IOC_NR(SNDRV_COMPRESS_PARTIAL_DRAIN):
+	case _IOC_NR(SNDRV_COMPRESS_NEXT_TRACK):
+        return file->f_op->unlocked_ioctl(file, cmd,arg);
+		break;
+
+	}
+
+}
+
+#else
+#define snd_compr_ioctl_compat   NULL
+#endif
+
 static const struct file_operations snd_compr_file_ops = {
 		.owner =	THIS_MODULE,
 		.open =		snd_compr_open,
@@ -846,6 +880,7 @@ static const struct file_operations snd_compr_file_ops = {
 		.write =	snd_compr_write,
 		.read =		snd_compr_read,
 		.unlocked_ioctl = snd_compr_ioctl,
+        .compat_ioctl = 	snd_compr_ioctl_compat,
 		.mmap =		snd_compr_mmap,
 		.poll =		snd_compr_poll,
 };

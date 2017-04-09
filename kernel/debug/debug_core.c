@@ -86,6 +86,10 @@ static int kgdb_use_con;
 bool dbg_is_early = true;
 /* Next cpu to become the master debug core */
 int dbg_switch_cpu;
+/* Flag for entering kdb when a panic occurs */
+static bool break_on_panic = true;
+/* Flag for entering kdb when an exception occurs */
+static bool break_on_exception = true;
 
 /* Use kdb or gdbserver mode */
 int dbg_kdb_mode = 1;
@@ -100,6 +104,8 @@ early_param("kgdbcon", opt_kgdb_con);
 
 module_param(kgdb_use_con, int, 0644);
 module_param(kgdbreboot, int, 0644);
+module_param(break_on_panic, bool, 0644);
+module_param(break_on_exception, bool, 0644);
 
 /*
  * Holds information about breakpoints in a kernel. These breakpoints are
@@ -464,6 +470,11 @@ static int kgdb_cpu_enter(struct kgdb_state *ks, struct pt_regs *regs,
 	int trace_on = 0;
 	int online_cpus = num_online_cpus();
 
+	#ifdef CONFIG_KGDB_KDB
+	if (force_panic)	/* Force panic in previous KDB, so skip this time */
+		return NOTIFY_DONE;
+	#endif
+
 	kgdb_info[ks->cpu].enter_kgdb++;
 	kgdb_info[ks->cpu].exception_state |= exception_state;
 
@@ -658,6 +669,14 @@ kgdb_restore:
 	dbg_touch_watchdogs();
 	local_irq_restore(flags);
 
+	#ifdef CONFIG_KGDB_KDB
+	/* If no user input, force trigger kernel panic here */
+	if (force_panic) {
+		printk("KDB : Force Kernal Panic ! \n");
+		do { *(volatile int *)0 = 0; } while (1);
+	}
+	#endif
+		
 	return kgdb_info[cpu].ret_state;
 }
 
@@ -677,6 +696,9 @@ kgdb_handle_exception(int evector, int signo, int ecode, struct pt_regs *regs)
 
 	if (arch_kgdb_ops.enable_nmi)
 		arch_kgdb_ops.enable_nmi(0);
+
+	if (unlikely(signo != SIGTRAP && !break_on_exception))
+		return 1;
 
 	ks->cpu			= raw_smp_processor_id();
 	ks->ex_vector		= evector;
@@ -784,6 +806,14 @@ static int kgdb_panic_event(struct notifier_block *self,
 			    unsigned long val,
 			    void *data)
 {
+	#ifdef CONFIG_KGDB_KDB
+	if (force_panic)	/* Force panic in previous KDB, so skip this time */
+		return NOTIFY_DONE;
+	#endif
+
+	if (!break_on_panic)
+		return NOTIFY_DONE;
+
 	if (dbg_kdb_mode)
 		kdb_printf("PANIC: %s\n", (char *)data);
 	kgdb_breakpoint();

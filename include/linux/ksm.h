@@ -80,6 +80,14 @@ int rmap_walk_ksm(struct page *page, int (*rmap_one)(struct page *,
 		  struct vm_area_struct *, unsigned long, void *), void *arg);
 void ksm_migrate_page(struct page *newpage, struct page *oldpage);
 
+/*add for charing detect*/
+typedef enum {
+	KAL_FALSE = 0,
+	KAL_TRUE  = 1,
+} kal_bool;
+
+kal_bool bat_is_charger_exist(void);
+
 #else  /* !CONFIG_KSM */
 
 static inline int ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)

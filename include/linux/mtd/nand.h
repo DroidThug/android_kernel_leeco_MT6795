@@ -56,9 +56,13 @@ extern int nand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
  * is supported now. If you add a chip with bigger oobsize/page
  * adjust this accordingly.
  */
-#define NAND_MAX_OOBSIZE	640
-#define NAND_MAX_PAGESIZE	8192
+#define NAND_MAX_OOBSIZE	1024
+#define NAND_MAX_PAGESIZE	16384
 
+#ifdef CONFIG_MTK_MTD_NAND
+#define NAND_MAX_SUBPAGE_SIZE       (1024)
+#define NAND_MAX_SUBPAGE_SPARE_SIZE (128)
+#endif
 /*
  * Constants for hardware specific CLE/ALE/NCE function
  *
@@ -153,6 +157,8 @@ typedef enum {
  * autoincrement.
  */
 #define NAND_NEED_READRDY	0x00000100
+
+#define NAND_NO_READRDY		0x00000100
 
 /* Chip does not allow subpage writes */
 #define NAND_NO_SUBPAGE_WRITE	0x00000200
@@ -377,6 +383,9 @@ struct nand_buffers {
 	uint8_t	ecccalc[NAND_MAX_OOBSIZE];
 	uint8_t	ecccode[NAND_MAX_OOBSIZE];
 	uint8_t databuf[NAND_MAX_PAGESIZE + NAND_MAX_OOBSIZE];
+	#ifdef CONFIG_MTK_MTD_NAND
+	uint8_t subpagebuf[NAND_MAX_SUBPAGE_SIZE + NAND_MAX_SUBPAGE_SPARE_SIZE];
+	#endif
 };
 
 /**
@@ -494,6 +503,21 @@ struct nand_chip {
 			int feature_addr, uint8_t *subfeature_para);
 	int (*onfi_get_features)(struct mtd_info *mtd, struct nand_chip *chip,
 			int feature_addr, uint8_t *subfeature_para);
+
+#ifdef CONFIG_MTK_MTD_NAND
+			int 	(*read_page)(struct mtd_info *mtd, struct nand_chip *chip, u8 *buf, int page);
+			int 	(*erase)(struct mtd_info *mtd, int page);
+	
+			/*
+			 * sub-page read related members
+			 */
+	
+			// subpage read will be triggered if this API is hooked by driver, otherwise normal page read will only be triggered
+			int 	(*read_subpage)(struct mtd_info *mtd, struct nand_chip *chip, u8 *buf, int page, int subpage_begin, int subpage_cnt);
+	
+			// indicating subpage size, must be assigned in driver's initialization stage
+			int 	subpage_size;
+#endif
 
 	int chip_delay;
 	unsigned int options;
@@ -723,5 +747,17 @@ static inline int onfi_get_sync_timing_mode(struct nand_chip *chip)
 		return ONFI_TIMING_MODE_UNKNOWN;
 	return le16_to_cpu(chip->onfi_params.src_sync_timing_mode);
 }
+
+#ifdef CONFIG_MTK_MTD_NAND
+struct mtd_perf_log
+{
+    unsigned int read_size_0_512;
+    unsigned int read_size_512_1K;
+    unsigned int read_size_1K_2K;
+    unsigned int read_size_2K_3K;
+    unsigned int read_size_3K_4K;
+    unsigned int read_size_Above_4K;
+};
+#endif
 
 #endif /* __LINUX_MTD_NAND_H */

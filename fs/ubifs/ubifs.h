@@ -36,10 +36,16 @@
 #include <linux/mtd/ubi.h>
 #include <linux/pagemap.h>
 #include <linux/backing-dev.h>
+#include <linux/security.h>
 #include "ubifs-media.h"
 
 /* Version of this UBIFS implementation */
 #define UBIFS_VERSION 1
+
+/* Enable using log LEB fully */
+//#define CONFIG_UBIFS_FS_FULL_USE_LOG
+/* Backward compatible Enable using log LEB fully */
+#define CONFIG_UBIFS_FS_FULL_USE_LOG_BACKWARD
 
 /* Normal UBIFS messages */
 #define ubifs_msg(fmt, ...) pr_notice("UBIFS: " fmt "\n", ##__VA_ARGS__)
@@ -158,6 +164,11 @@
 
 /* Maximum number of data nodes to bulk-read */
 #define UBIFS_MAX_BULK_READ 32
+
+#if defined(CONFIG_MT_ENG_BUILD)
+/* MTK: UBIFS performance log */
+#define FEATURE_UBIFS_PERF_INDEX
+#endif
 
 /*
  * Lockdep classes for UBIFS inode @ui_mutex.
@@ -693,6 +704,7 @@ struct ubifs_wbuf {
 	unsigned int need_sync:1;
 	int next_ino;
 	ino_t *inodes;
+	uint64_t w_count;
 };
 
 /**
@@ -739,8 +751,9 @@ struct ubifs_zbranch {
 		struct ubifs_znode *znode;
 		void *leaf;
 	};
-	int lnum;
+	int dummy;
 	int offs;
+	int lnum;
 	int len;
 };
 
@@ -1042,6 +1055,7 @@ struct ubifs_debug_info;
  *
  * @mst_node: master node
  * @mst_offs: offset of valid master node
+ * @mst_mutex: protects the master node area, @mst_node, and @mst_offs
  *
  * @max_bu_buf_len: maximum bulk-read buffer length
  * @bu_mutex: protects the pre-allocated bulk-read buffer and @c->bu
@@ -1281,6 +1295,7 @@ struct ubifs_info {
 
 	struct ubifs_mst_node *mst_node;
 	int mst_offs;
+	struct mutex mst_mutex;
 
 	int max_bu_buf_len;
 	struct mutex bu_mutex;
@@ -1447,7 +1462,7 @@ struct ubifs_info {
 	struct ubifs_mst_node *rcvrd_mst_node;
 	struct rb_root size_tree;
 	struct ubifs_mount_opts mount_opts;
-
+	int host_wcount;
 	struct ubifs_debug_info *dbg;
 };
 
@@ -1456,6 +1471,7 @@ extern spinlock_t ubifs_infos_lock;
 extern atomic_long_t ubifs_clean_zn_cnt;
 extern struct kmem_cache *ubifs_inode_slab;
 extern const struct super_operations ubifs_super_operations;
+extern const struct xattr_handler *ubifs_xattr_handlers[];
 extern const struct address_space_operations ubifs_file_address_operations;
 extern const struct file_operations ubifs_file_operations;
 extern const struct inode_operations ubifs_file_inode_operations;
@@ -1738,6 +1754,8 @@ int ubifs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 /* xattr.c */
 int ubifs_setxattr(struct dentry *dentry, const char *name,
 		   const void *value, size_t size, int flags);
+int ubifs_init_security(struct inode *dentry, struct inode *inode,
+	 const struct qstr *qstr);
 ssize_t ubifs_getxattr(struct dentry *dentry, const char *name, void *buf,
 		       size_t size);
 ssize_t ubifs_listxattr(struct dentry *dentry, char *buffer, size_t size);

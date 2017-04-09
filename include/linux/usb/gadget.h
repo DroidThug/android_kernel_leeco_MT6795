@@ -444,6 +444,10 @@ static inline void usb_ep_fifo_flush(struct usb_ep *ep)
 /*-------------------------------------------------------------------------*/
 
 struct usb_dcd_config_params {
+#ifdef CONFIG_USB_MU3D_DRV
+	__u8 bU1Enabled; /* added for U3 */
+	__u8 bU2Enabled; /* added for U3 */
+#endif
 	__u8  bU1devExitLat;	/* U1 Device exit Latency */
 #define USB_DEFAULT_U1_DEV_EXIT_LAT	0x01	/* Less then 1 microsec */
 	__le16 bU2DevExitLat;	/* U2 Device exit Latency */
@@ -533,10 +537,17 @@ struct usb_gadget {
 	unsigned			b_hnp_enable:1;
 	unsigned			a_hnp_support:1;
 	unsigned			a_alt_hnp_support:1;
+#if defined(CONFIG_USBIF_COMPLIANCE)
+	unsigned			otg_srp_reqd:1;
+	unsigned			host_request:1;
+#endif
 	const char			*name;
 	struct device			dev;
 	unsigned			out_epnum;
 	unsigned			in_epnum;
+#ifdef CONFIG_USB_MU3D_DRV
+	struct usb_dcd_config_params pwr_params;	/* added for U3 */
+#endif
 };
 
 static inline void set_gadget_data(struct usb_gadget *gadget, void *data)

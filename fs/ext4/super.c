@@ -2811,6 +2811,7 @@ static int ext4_lazyinit_thread(void *arg)
 	unsigned long next_wakeup, cur;
 
 	BUG_ON(NULL == eli);
+	set_freezable();
 
 cont_thread:
 	while (true) {
@@ -2850,7 +2851,7 @@ cont_thread:
 
 		schedule_timeout_interruptible(next_wakeup - cur);
 
-		if (kthread_should_stop()) {
+		if (kthread_freezable_should_stop(NULL)) {
 			ext4_clear_request_list();
 			goto exit_thread;
 		}
@@ -4621,6 +4622,8 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
 	int i, j;
 #endif
 	char *orig_data = kstrdup(data, GFP_KERNEL);
+
+	sync_filesystem(sb);
 
 	/* Store the original options */
 	old_sb_flags = sb->s_flags;

@@ -68,7 +68,7 @@
 #define USB_RECIP_OTHER			0x03
 /* From Wireless USB 1.0 */
 #define USB_RECIP_PORT			0x04
-#define USB_RECIP_RPIPE		0x05
+#define USB_RECIP_RPIPE			0x05
 
 /*
  * Standard requests, for the bRequest field of a SETUP packet.
@@ -130,11 +130,17 @@
  * Test Mode Selectors
  * See USB 2.0 spec Table 9-7
  */
-#define	TEST_J		1
-#define	TEST_K		2
-#define	TEST_SE0_NAK	3
-#define	TEST_PACKET	4
-#define	TEST_FORCE_EN	5
+#define	TEST_J			1
+#define	TEST_K			2
+#define	TEST_SE0_NAK		3
+#define	TEST_PACKET		4
+#define	TEST_FORCE_EN		5
+
+/* OTG test mode feature bits
+ * See ECN OTG2.0 spec Table 6-8
+ */
+#define TEST_OTG_SRP_REQD	6
+#define TEST_OTG_HNP_REQD	7
 
 /*
  * New Feature Selectors as added by USB 3.0
@@ -155,10 +161,17 @@
 /*
  * Interface status, Figure 9-5 USB 3.0 spec
  */
-#define USB_INTRF_STAT_FUNC_RW_CAP     1
-#define USB_INTRF_STAT_FUNC_RW         2
+#define USB_INTRF_STAT_FUNC_RW_CAP	1
+#define USB_INTRF_STAT_FUNC_RW		2
 
 #define USB_ENDPOINT_HALT		0	/* IN/OUT will STALL */
+
+#define OTG_STATUS_SELECTOR		0xF000
+#define HOST_REQUEST_FLAG		0
+#define THOST_REQ_POLL			1500 /* msec (1000 - 2000) */
+#define OTG_TTST_SUSP			70   /* msec (0 - 100) */
+
+#define OTG_TTST_VBUS_OFF		1
 
 /* Bit array elements as returned by the USB_REQ_GET_STATUS request. */
 #define USB_DEV_STAT_U1_ENABLED		2	/* transition into U1 state */
@@ -447,7 +460,7 @@ static inline int usb_endpoint_type(const struct usb_endpoint_descriptor *epd)
  */
 static inline int usb_endpoint_dir_in(const struct usb_endpoint_descriptor *epd)
 {
-	return ((epd->bEndpointAddress & USB_ENDPOINT_DIR_MASK) == USB_DIR_IN);
+	return (epd->bEndpointAddress & USB_ENDPOINT_DIR_MASK) == USB_DIR_IN;
 }
 
 /**
@@ -459,7 +472,7 @@ static inline int usb_endpoint_dir_in(const struct usb_endpoint_descriptor *epd)
 static inline int usb_endpoint_dir_out(
 				const struct usb_endpoint_descriptor *epd)
 {
-	return ((epd->bEndpointAddress & USB_ENDPOINT_DIR_MASK) == USB_DIR_OUT);
+	return (epd->bEndpointAddress & USB_ENDPOINT_DIR_MASK) == USB_DIR_OUT;
 }
 
 /**
@@ -471,8 +484,8 @@ static inline int usb_endpoint_dir_out(
 static inline int usb_endpoint_xfer_bulk(
 				const struct usb_endpoint_descriptor *epd)
 {
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_BULK);
+	return (epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
+		USB_ENDPOINT_XFER_BULK;
 }
 
 /**
@@ -484,8 +497,8 @@ static inline int usb_endpoint_xfer_bulk(
 static inline int usb_endpoint_xfer_control(
 				const struct usb_endpoint_descriptor *epd)
 {
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_CONTROL);
+	return (epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
+		USB_ENDPOINT_XFER_CONTROL;
 }
 
 /**
@@ -498,8 +511,8 @@ static inline int usb_endpoint_xfer_control(
 static inline int usb_endpoint_xfer_int(
 				const struct usb_endpoint_descriptor *epd)
 {
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_INT);
+	return (epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
+		USB_ENDPOINT_XFER_INT;
 }
 
 /**
@@ -512,8 +525,8 @@ static inline int usb_endpoint_xfer_int(
 static inline int usb_endpoint_xfer_isoc(
 				const struct usb_endpoint_descriptor *epd)
 {
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_ISOC);
+	return (epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
+		USB_ENDPOINT_XFER_ISOC;
 }
 
 /**
@@ -672,11 +685,15 @@ struct usb_otg_descriptor {
 	__u8  bDescriptorType;
 
 	__u8  bmAttributes;	/* support for HNP, SRP, etc */
+#ifdef CONFIG_USBIF_COMPLIANCE
+	__le16 bcdOTG;
+#endif
 } __attribute__ ((packed));
 
 /* from usb_otg_descriptor.bmAttributes */
 #define USB_OTG_SRP		(1 << 0)
 #define USB_OTG_HNP		(1 << 1)	/* swap host/device roles */
+#define USB_OTG_ADP		(1 << 2)
 
 /*-------------------------------------------------------------------------*/
 

@@ -23,4 +23,27 @@
 
 #define COMMAND_LINE_SIZE	2048
 
+/* general memory descriptor */
+typedef struct {
+    u64 start;
+    u64 size;
+} mem_desc_t;
+
+/* mblock is used by CPU */
+typedef struct {
+	u64 start;
+	u64 size;
+	u32 rank;	/* rank the mblock belongs to */
+} mblock_t;
+
+typedef struct {
+	u32 mblock_num;
+	mblock_t mblock[4];
+} mblock_info_t;
+
+typedef struct {
+	u32 rank_num;
+	mem_desc_t rank_info[4];
+} dram_info_t;
+
 #endif

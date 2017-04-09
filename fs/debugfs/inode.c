@@ -28,7 +28,7 @@
 #include <linux/magic.h>
 #include <linux/slab.h>
 
-#define DEBUGFS_DEFAULT_MODE	0700
+#define DEBUGFS_DEFAULT_MODE	0755
 
 static struct vfsmount *debugfs_mount;
 static int debugfs_mount_count;
@@ -218,6 +218,7 @@ static int debugfs_remount(struct super_block *sb, int *flags, char *data)
 	int err;
 	struct debugfs_fs_info *fsi = sb->s_fs_info;
 
+	sync_filesystem(sb);
 	err = debugfs_parse_options(data, &fsi->mount_opts);
 	if (err)
 		goto fail;

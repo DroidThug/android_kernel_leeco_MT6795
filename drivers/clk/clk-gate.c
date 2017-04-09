@@ -16,6 +16,11 @@
 #include <linux/err.h>
 #include <linux/string.h>
 
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#define MT_CCF_DEBUG	1
+#define MT_CCF_BRINGUP	0 /* FIXME: only for bring up */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
+
 /**
  * DOC: basic gatable clock which can gate and ungate it's ouput
  *
@@ -64,10 +69,24 @@ static void clk_gate_endisable(struct clk_hw *hw, int enable)
 
 	if (gate->lock)
 		spin_unlock_irqrestore(gate->lock, flags);
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#if MT_CCF_DEBUG
+	pr_debug("[CCF] %s: %s, enable=%d, reg=%u, idx=%u\n", __func__,
+	       __clk_get_name(hw->clk), enable, reg, gate->bit_idx);
+#endif /* MT_CCF_DEBUG */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 }
 
 static int clk_gate_enable(struct clk_hw *hw)
 {
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#if MT_CCF_DEBUG
+	pr_debug("[CCF] %s: %s\n", __func__, __clk_get_name(hw->clk));
+#endif /* MT_CCF_DEBUG */
+#if MT_CCF_BRINGUP
+	return 0;
+#endif /* MT_CCF_BRINGUP */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	clk_gate_endisable(hw, 1);
 
 	return 0;
@@ -75,6 +94,23 @@ static int clk_gate_enable(struct clk_hw *hw)
 
 static void clk_gate_disable(struct clk_hw *hw)
 {
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#if MT_CCF_DEBUG
+	pr_debug("[CCF] %s: %s\n", __func__, __clk_get_name(hw->clk));
+#endif /* MT_CCF_DEBUG */
+#if MT_CCF_BRINGUP
+	return;
+#else /* !MT_CCF_BRINGUP */
+	/*if (!strcmp(__clk_get_name(hw->clk), "mm_sel") ||
+	    !strcmp(__clk_get_name(hw->clk), "vdec_sel") ||
+	    !strcmp(__clk_get_name(hw->clk), "mfg_sel") ||
+	    !strcmp(__clk_get_name(hw->clk), "msdc30_1_sel")) {
+		pr_debug("[CCF] %s: %s is skip!\n", __func__,
+		       __clk_get_name(hw->clk));
+		return;
+	}*/
+#endif /* MT_CCF_BRINGUP */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	clk_gate_endisable(hw, 0);
 }
 
@@ -82,6 +118,14 @@ static int clk_gate_is_enabled(struct clk_hw *hw)
 {
 	u32 reg;
 	struct clk_gate *gate = to_clk_gate(hw);
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#if MT_CCF_DEBUG
+	pr_debug("[CCF] %s: %s\n", __func__, __clk_get_name(hw->clk));
+#endif /* MT_CCF_DEBUG */
+#if MT_CCF_BRINGUP
+	return 1;
+#endif /* MT_CCF_BRINGUP */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 
 	reg = readl(gate->reg);
 

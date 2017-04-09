@@ -142,6 +142,9 @@ struct hd_struct {
 enum {
 	DISK_EVENT_MEDIA_CHANGE			= 1 << 0, /* media changed */
 	DISK_EVENT_EJECT_REQUEST		= 1 << 1, /* eject requested */
+#ifdef CONFIG_MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT	
+	DISK_EVENT_MEDIA_DISAPPEAR		= 1 << 2, /* add for sdcard hotplug*/
+#endif	
 };
 
 #define BLK_SCSI_MAX_CMDS	(256)
@@ -627,6 +630,8 @@ extern void blk_register_region(dev_t devt, unsigned long range,
 extern void blk_unregister_region(dev_t devt, unsigned long range);
 
 extern ssize_t part_size_show(struct device *dev,
+			      struct device_attribute *attr, char *buf);
+extern ssize_t part_emmcsize_show(struct device *dev,
 			      struct device_attribute *attr, char *buf);
 extern ssize_t part_stat_show(struct device *dev,
 			      struct device_attribute *attr, char *buf);

@@ -331,7 +331,9 @@ static inline void local_flush_tlb_all(void)
 	tlb_op(TLB_V4_D_FULL | TLB_V6_D_FULL, "c8, c6, 0", zero);
 	tlb_op(TLB_V4_I_FULL | TLB_V6_I_FULL, "c8, c5, 0", zero);
 	tlb_op(TLB_V7_UIS_FULL, "c8, c3, 0", zero);
-
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_op(TLB_V7_UIS_FULL, "c8, c3, 0", zero);
+#endif 
 	if (tlb_flag(TLB_BARRIER)) {
 		dsb();
 		isb();
@@ -361,8 +363,14 @@ static inline void local_flush_tlb_mm(struct mm_struct *mm)
 	tlb_op(TLB_V6_I_ASID, "c8, c5, 2", asid);
 #ifdef CONFIG_ARM_ERRATA_720789
 	tlb_op(TLB_V7_UIS_ASID, "c8, c3, 0", zero);
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_op(TLB_V7_UIS_ASID, "c8, c3, 0", zero);
+#endif
 #else
 	tlb_op(TLB_V7_UIS_ASID, "c8, c3, 2", asid);
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_op(TLB_V7_UIS_ASID, "c8, c3, 2", asid);
+#endif
 #endif
 
 	if (tlb_flag(TLB_BARRIER))
@@ -394,8 +402,14 @@ local_flush_tlb_page(struct vm_area_struct *vma, unsigned long uaddr)
 	tlb_op(TLB_V6_I_PAGE, "c8, c5, 1", uaddr);
 #ifdef CONFIG_ARM_ERRATA_720789
 	tlb_op(TLB_V7_UIS_PAGE, "c8, c3, 3", uaddr & PAGE_MASK);
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_op(TLB_V7_UIS_PAGE, "c8, c3, 3", uaddr & PAGE_MASK);
+#endif
 #else
 	tlb_op(TLB_V7_UIS_PAGE, "c8, c3, 1", uaddr);
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_op(TLB_V7_UIS_PAGE, "c8, c3, 1", uaddr);
+#endif
 #endif
 
 	if (tlb_flag(TLB_BARRIER))
@@ -422,7 +436,9 @@ static inline void local_flush_tlb_kernel_page(unsigned long kaddr)
 	tlb_op(TLB_V6_D_PAGE, "c8, c6, 1", kaddr);
 	tlb_op(TLB_V6_I_PAGE, "c8, c5, 1", kaddr);
 	tlb_op(TLB_V7_UIS_PAGE, "c8, c3, 1", kaddr);
-
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_op(TLB_V7_UIS_PAGE, "c8, c3, 1", kaddr);
+#endif
 	if (tlb_flag(TLB_BARRIER)) {
 		dsb();
 		isb();
@@ -434,29 +450,21 @@ static inline void local_flush_bp_all(void)
 	const int zero = 0;
 	const unsigned int __tlb_flag = __cpu_tlb_flags;
 
-	if (tlb_flag(TLB_V7_UIS_BP))
+	if (tlb_flag(TLB_V7_UIS_BP)){
 		asm("mcr p15, 0, %0, c7, c1, 6" : : "r" (zero));
-	else if (tlb_flag(TLB_V6_BP))
+#ifdef CONFIG_ARM_ERRATA_831171
+		asm("mcr p15, 0, %0, c7, c1, 6" : : "r" (zero));
+#endif
+	}
+	else if (tlb_flag(TLB_V6_BP)){
 		asm("mcr p15, 0, %0, c7, c5, 6" : : "r" (zero));
-
+#ifdef CONFIG_ARM_ERRATA_831171
+		asm("mcr p15, 0, %0, c7, c5, 6" : : "r" (zero));
+#endif
+	}
 	if (tlb_flag(TLB_BARRIER))
 		isb();
 }
-
-#ifdef CONFIG_ARM_ERRATA_798181
-static inline void dummy_flush_tlb_a15_erratum(void)
-{
-	/*
-	 * Dummy TLBIMVAIS. Using the unmapped address 0 and ASID 0.
-	 */
-	asm("mcr p15, 0, %0, c8, c3, 1" : : "r" (0));
-	dsb();
-}
-#else
-static inline void dummy_flush_tlb_a15_erratum(void)
-{
-}
-#endif
 
 /*
  *	flush_pmd_entry
@@ -477,7 +485,9 @@ static inline void flush_pmd_entry(void *pmd)
 
 	tlb_op(TLB_DCLEAN, "c7, c10, 1	@ flush_pmd", pmd);
 	tlb_l2_op(TLB_L2CLEAN_FR, "c15, c9, 1  @ L2 flush_pmd", pmd);
-
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_l2_op(TLB_L2CLEAN_FR, "c15, c9, 1  @ L2 flush_pmd", pmd);
+#endif
 	if (tlb_flag(TLB_WB))
 		dsb();
 }
@@ -488,6 +498,9 @@ static inline void clean_pmd_entry(void *pmd)
 
 	tlb_op(TLB_DCLEAN, "c7, c10, 1	@ flush_pmd", pmd);
 	tlb_l2_op(TLB_L2CLEAN_FR, "c15, c9, 1  @ L2 flush_pmd", pmd);
+#ifdef CONFIG_ARM_ERRATA_831171
+	tlb_l2_op(TLB_L2CLEAN_FR, "c15, c9, 1  @ L2 flush_pmd", pmd);
+#endif
 }
 
 #undef tlb_op
@@ -538,5 +551,22 @@ static inline void update_mmu_cache(struct vm_area_struct *vma,
 #endif
 
 #endif /* CONFIG_MMU */
+
+#ifndef __ASSEMBLY__
+#ifdef CONFIG_ARM_ERRATA_798181
+extern void erratum_a15_798181_init(void);
+#else
+static inline void erratum_a15_798181_init(void) {}
+#endif
+extern bool (*erratum_a15_798181_handler)(void);
+
+static inline bool erratum_a15_798181(void)
+{
+	if (unlikely(IS_ENABLED(CONFIG_ARM_ERRATA_798181) &&
+		erratum_a15_798181_handler))
+		return erratum_a15_798181_handler();
+	return false;
+}
+#endif
 
 #endif

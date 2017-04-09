@@ -9,6 +9,7 @@
 #include <linux/hugetlb.h>
 #include <linux/mman.h>
 #include <linux/slab.h>
+#include <linux/export.h>
 #include <linux/kernel_stat.h>
 #include <linux/swap.h>
 #include <linux/vmalloc.h>
@@ -40,10 +41,14 @@
 #include <linux/swapops.h>
 #include <linux/page_cgroup.h>
 
+#define DYNAMIC_SWAP_SELECTION
+#if defined(DYNAMIC_SWAP_SELECTION) && defined(CONFIG_COMPACTION)
+/*#include <linux/compaction.h>*/
+#endif
+
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
 static void free_swap_count_continuations(struct swap_info_struct *);
-static sector_t map_swap_entry(swp_entry_t, struct block_device**);
 
 DEFINE_SPINLOCK(swap_lock);
 static unsigned int nr_swapfiles;
@@ -504,8 +509,192 @@ swp_entry_t get_swap_page_of_type(int type)
 	spin_unlock(&si->lock);
 	return (swp_entry_t) {0};
 }
+EXPORT_SYMBOL_GPL(get_swap_page_of_type);
 
-static struct swap_info_struct *swap_info_get(swp_entry_t entry)
+#ifdef CONFIG_MEMCG_ZNDSWAP
+#ifdef DYNAMIC_SWAP_SELECTION
+
+int dt_swapcache;
+int dt_writeback;
+int dt_filecache;
+
+/* 
+ * The principle of this function is to mitigate memory pressure(might be caused by in-RAM swap). 
+ * Return -
+ * 	TRUE, high first
+ * 	FALSE, low first
+ */
+static bool no_dynamic_swap_selection(struct page *page, bool is_root)
+{
+	int file_cache_threshold, swap_cache_size, wb, free_threshold;
+#ifdef CONFIG_COMPACTION
+	/*int fragindex;*/
+#endif
+
+	/* Get the size of swapcache for judgement */
+	swap_cache_size = total_swapcache_pages();
+
+	/* Successive flow only decide whether it should be low first(FALSE), so we could check is_root only for quick determination */
+	if (!is_root) {
+		/* Is swapcache/wb too high? It implies some congestion may happen in storage */
+		wb = global_page_state(NR_WRITEBACK);
+		if (swap_cache_size > dt_swapcache && wb > dt_writeback)
+			return true;
+		else
+			return false;
+	}
+
+	/* Is the size of cache memory < 1/8 kernel manageable memory - minimum working set */
+	file_cache_threshold = (global_page_state(NR_FILE_PAGES) - global_page_state(NR_SHMEM) - swap_cache_size) << 3;
+	if (file_cache_threshold < dt_filecache)
+		return false;
+
+	free_threshold = global_page_state(NR_FREE_PAGES);
+	/* Is there too few free memory */
+	if (free_threshold <= low_wmark_pages(page_zone(page)))
+		return false;
+
+#ifdef CONFIG_COMPACTION
+	/* P: Is there fragmentation for order-2 page allocation - successful process fork
+	fragindex = fragmentation_index(page_zone(page), 2);
+	if (fragindex > 500)
+		return false;
+	*/
+#endif
+
+	/* Is it a RT task
+	if (rt_task(current))
+		return false;
+	*/
+
+	/* Default: No dynamic swap selection */
+	return true;
+}
+#endif
+
+swp_entry_t get_swap_page_by_memcg(struct page *page)
+{
+	struct swap_info_struct *si;
+	int type, next, wrapped;
+	pgoff_t offset;
+	bool is_memcg_root;
+
+	/* Go to original get_swap_page if we have only 1 or no swap area. */
+	if (nr_swapfiles <= 1)
+		return get_swap_page();
+
+	/* Is root memcg */
+	is_memcg_root = memcg_is_root(page);
+
+#ifdef DYNAMIC_SWAP_SELECTION
+	/* Determine the selection policy dynamically */
+	is_memcg_root = no_dynamic_swap_selection(page, is_memcg_root);
+#endif	
+
+	spin_lock(&swap_lock);
+	if (atomic_long_read(&nr_swap_pages) <= 0)
+		goto noswap;
+	atomic_long_dec(&nr_swap_pages);
+
+	/* Suppose no change on memcg until now */
+
+	/* In which memcg */
+	if (is_memcg_root) {
+		/* High to low priority */
+		wrapped = 1;
+		type = swap_list.head;
+	} else {
+		/* Low to high priority */
+		wrapped = 0;
+		si = swap_info[swap_list.head];
+		type = si->next;
+	}
+
+	/* Scan for an empty swap entry */
+	for (; (type >= 0) || (wrapped == 0); type = next) {
+		if (type < 0) {
+			wrapped++;
+			next = swap_list.head;
+			continue;
+		}
+		
+		si = swap_info[type];
+		next = si->next;
+		spin_lock(&si->lock);
+		if (!si->highest_bit) {
+			spin_unlock(&si->lock);
+			continue;
+		}
+		if (!(si->flags & SWP_WRITEOK)) {
+			spin_unlock(&si->lock);
+			continue;
+		}
+		spin_unlock(&swap_lock);
+		/* This is called for allocating swap entry for cache */
+		offset = scan_swap_map(si, SWAP_HAS_CACHE);
+		spin_unlock(&si->lock);
+		if (offset)
+			return swp_entry(type, offset);
+		spin_lock(&swap_lock);
+	}
+
+	atomic_long_inc(&nr_swap_pages);
+noswap:
+	spin_unlock(&swap_lock);
+	return (swp_entry_t) {0};
+}
+#endif
+
+static unsigned int find_next_to_unuse(struct swap_info_struct *si,
+					unsigned int prev, bool frontswap);
+
+void get_swap_range_of_type(int type, swp_entry_t *start, swp_entry_t *end,
+		unsigned int limit)
+{
+	struct swap_info_struct *si;
+	pgoff_t start_at;
+	unsigned int i;
+
+	*start = swp_entry(0, 0);
+	*end = swp_entry(0, 0);
+	si = swap_info[type];
+	spin_lock(&si->lock);
+	if (si && (si->flags & SWP_WRITEOK)) {
+		/* This is called for allocating swap entry, not cache */
+		start_at = scan_swap_map(si, 1);
+		if (start_at) {
+			unsigned long stop_at = find_next_to_unuse(si, start_at, 0);
+			if (stop_at > start_at)
+				stop_at--;
+			else
+				stop_at = si->max - 1;
+			if (stop_at - start_at + 1 > limit)
+				stop_at = min_t(unsigned int,
+						start_at + limit - 1,
+						si->max - 1);
+			/* Mark them used */
+			for (i = start_at; i <= stop_at; i++)
+				si->swap_map[i] = 1;
+			/* first page already done above */
+			si->inuse_pages += stop_at - start_at;
+
+			atomic_long_sub(stop_at - start_at + 1, &nr_swap_pages);
+			if (start_at + 1 == si->lowest_bit)
+				si->lowest_bit = stop_at + 1;
+			if (si->inuse_pages == si->pages) {
+				si->lowest_bit = si->max;
+				si->highest_bit = 0;
+			}
+			si->cluster_next = stop_at + 1;
+			*start = swp_entry(type, start_at);
+			*end = swp_entry(type, stop_at);
+		}
+	}
+	spin_unlock(&si->lock);
+}
+EXPORT_SYMBOL_GPL(get_swap_range_of_type);
+
+struct swap_info_struct *swap_info_get(swp_entry_t entry)
 {
 	struct swap_info_struct *p;
 	unsigned long offset, type;
@@ -539,6 +728,11 @@ bad_nofile:
 	printk(KERN_ERR "swap_free: %s%08lx\n", Bad_file, entry.val);
 out:
 	return NULL;
+}
+
+void swap_info_unlock(struct swap_info_struct *si)
+{
+        spin_unlock(&si->lock);
 }
 
 /*
@@ -650,6 +844,7 @@ void swapcache_free(swp_entry_t entry, struct page *page)
 		spin_unlock(&p->lock);
 	}
 }
+EXPORT_SYMBOL_GPL(swap_free);
 
 /*
  * How many references to page are currently swapped out?
@@ -1344,7 +1539,7 @@ static void drain_mmlist(void)
  * Note that the type of this function is sector_t, but it returns page offset
  * into the bdev, not sector offset.
  */
-static sector_t map_swap_entry(swp_entry_t entry, struct block_device **bdev)
+sector_t map_swap_entry(swp_entry_t entry, struct block_device **bdev)
 {
 	struct swap_info_struct *sis;
 	struct swap_extent *start_se;
@@ -1371,6 +1566,7 @@ static sector_t map_swap_entry(swp_entry_t entry, struct block_device **bdev)
 		BUG_ON(se == start_se);		/* It *must* be present */
 	}
 }
+EXPORT_SYMBOL_GPL(map_swap_entry);
 
 /*
  * Returns the page offset into bdev for the specified page's swap entry.
@@ -1572,7 +1768,14 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
+#ifdef CONFIG_TOI
+    // FIXME: Turn it off due to current->mm may be NULL in kernel space
+    //        by calling sys_swapoff(swapfilename) in disable_swapfile() @ tuxonice_swap.c
+    pr_warn("[HIB/SWAP] [%s] file(%s) current(%p/%d/%s) current->mm(%p)\n", __func__, specialfile, current, current->pid, current->comm, current->mm);
+    WARN_ON(!current->mm);
+#else
 	BUG_ON(!current->mm);
+#endif
 
 	pathname = getname(specialfile);
 	if (IS_ERR(pathname))
@@ -1693,6 +1896,7 @@ out:
 	putname(pathname);
 	return err;
 }
+EXPORT_SYMBOL_GPL(sys_swapoff);
 
 #ifdef CONFIG_PROC_FS
 static unsigned swaps_poll(struct file *file, poll_table *wait)
@@ -2180,6 +2384,7 @@ out:
 		mutex_unlock(&inode->i_mutex);
 	return error;
 }
+EXPORT_SYMBOL_GPL(sys_swapon);
 
 void si_swapinfo(struct sysinfo *val)
 {
@@ -2197,6 +2402,7 @@ void si_swapinfo(struct sysinfo *val)
 	val->totalswap = total_swap_pages + nr_to_be_unused;
 	spin_unlock(&swap_lock);
 }
+EXPORT_SYMBOL_GPL(si_swapinfo);
 
 /*
  * Verify that a swap entry is valid and increment its swap map count.
@@ -2331,7 +2537,14 @@ pgoff_t __page_file_index(struct page *page)
 	VM_BUG_ON(!PageSwapCache(page));
 	return swp_offset(swap);
 }
+
 EXPORT_SYMBOL_GPL(__page_file_index);
+
+struct swap_info_struct *get_swap_info_struct(unsigned type)
+{
+	return swap_info[type];
+}
+EXPORT_SYMBOL_GPL(get_swap_info_struct);
 
 /*
  * add_swap_count_continuation - called when a swap count is duplicated

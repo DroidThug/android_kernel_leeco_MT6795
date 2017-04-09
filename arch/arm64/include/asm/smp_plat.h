@@ -20,11 +20,40 @@
 #define __ASM_SMP_PLAT_H
 
 #include <asm/types.h>
+#include <linux/cpumask.h>
+#include <linux/err.h>
+
+struct mpidr_hash {
+	u64	mask;
+	u32	shift_aff[4];
+	u32	bits;
+};
+
+extern struct mpidr_hash mpidr_hash;
+
+static inline u32 mpidr_hash_size(void)
+{
+	return 1 << mpidr_hash.bits;
+}
 
 /*
  * Logical CPU mapping.
  */
 extern u64 __cpu_logical_map[NR_CPUS];
 #define cpu_logical_map(cpu)    __cpu_logical_map[cpu]
+/*
+ * Retrieve logical cpu index corresponding to a given MPIDR[23:0]
+ *  - mpidr: MPIDR[23:0] to be used for the look-up
+ *
+ * Returns the cpu logical index or -EINVAL on look-up error
+ */
+static inline int get_logical_index(u32 mpidr)
+{
+	int cpu;
+	for (cpu = 0; cpu < nr_cpu_ids; cpu++)
+		if (cpu_logical_map(cpu) == mpidr)
+			return cpu;
+	return -EINVAL;
+}
 
 #endif /* __ASM_SMP_PLAT_H */

@@ -349,6 +349,16 @@ config CHARGER_TPS65090
 	 Say Y here to enable support for battery charging with TPS65090
 	 PMIC chips.
 
+config CHARGER_BQ2589X
+	tristate "TI BQ2589x battery charger driver"
+	depends on I2C
+	help
+	  Say Y to enable support for the TI BQ2589x battery charger
+	  PMICs.
+
+	  You'll need this driver to charge batteries on e.g. Nokia
+	  RX-51/N900.
+
 config AB8500_BM
 	bool "AB8500 Battery Management Driver"
 	depends on AB8500_CORE && AB8500_GPADC

@@ -1,6 +1,13 @@
 ccflags-y += -I$(src)			# needed for trace events
 
-obj-$(CONFIG_ANDROID_BINDER_IPC)	+= binder.o
+obj-y					+= ion/
+
+obj-$(CONFIG_FIQ_DEBUGGER)		+= fiq_debugger/
+ifeq ($(CONFIG_MTK_INTERNAL), y)
+KBUILD_CFLAGS += -DMTK_INTERNAL_BUILD  # add for LMK
+endif
+ccflags-y += -I$(srctree)/drivers/staging/android/ion
+
 obj-$(CONFIG_ASHMEM)			+= ashmem.o
 obj-$(CONFIG_ANDROID_LOGGER)		+= logger.o
 obj-$(CONFIG_ANDROID_TIMED_OUTPUT)	+= timed_output.o

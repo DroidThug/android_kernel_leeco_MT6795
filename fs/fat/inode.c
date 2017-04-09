@@ -157,11 +157,32 @@ static int fat_write_begin(struct file *file, struct address_space *mapping,
 			struct page **pagep, void **fsdata)
 {
 	int err;
+#if defined(FEATURE_STORAGE_PID_LOGGER)
+	extern unsigned char *page_logger;
+	struct page_pid_logger *tmp_logger;
+	unsigned long page_index;
+	extern spinlock_t g_locker;
+	unsigned long g_flags;
+#endif
 
 	*pagep = NULL;
 	err = cont_write_begin(file, mapping, pos, len, flags,
 				pagep, fsdata, fat_get_block,
 				&MSDOS_I(mapping->host)->mmu_private);
+#if defined(FEATURE_STORAGE_PID_LOGGER)
+	if( page_logger && (*pagep)) {
+		page_index = (unsigned long)(__page_to_pfn(*pagep))- PHYS_PFN_OFFSET;
+		tmp_logger =((struct page_pid_logger *)page_logger) + page_index;
+		spin_lock_irqsave(&g_locker, g_flags);
+		if( page_index < num_physpages) {
+			if( tmp_logger->pid1 == 0XFFFF)
+				tmp_logger->pid1 = current->pid;
+			else if( tmp_logger->pid1 != current->pid)
+				tmp_logger->pid2 = current->pid;
+		}
+		spin_unlock_irqrestore(&g_locker, g_flags);
+	}
+#endif
 	if (err < 0)
 		fat_write_failed(mapping, pos + len);
 	return err;
@@ -632,6 +653,8 @@ static int fat_remount(struct super_block *sb, int *flags, char *data)
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	*flags |= MS_NODIRATIME | (sbi->options.isvfat ? 0 : MS_NOATIME);
 
+	sync_filesystem(sb);
+
 	/* make sure we update state on remount. */
 	new_rdonly = *flags & MS_RDONLY;
 	if (new_rdonly != (sb->s_flags & MS_RDONLY)) {
@@ -721,7 +744,15 @@ retry:
 	mark_buffer_dirty(bh);
 	err = 0;
 	if (wait)
+	{
 		err = sync_dirty_buffer(bh);
+	}else
+	{
+#ifdef FEATURE_STORAGE_META_LOG
+		if( bh && bh->b_bdev && bh->b_bdev->bd_disk)
+			set_metadata_rw_status(bh->b_bdev->bd_disk->first_minor, NOWAIT_WRITE_CNT);
+#endif
+	}
 	brelse(bh);
 	return err;
 }
@@ -1252,6 +1283,7 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	struct inode *fsinfo_inode = NULL;
 	struct buffer_head *bh;
 	struct fat_boot_sector *b;
+	struct fat_boot_bsx *bsx;
 	struct msdos_sb_info *sbi;
 	u16 logical_sector_size;
 	u32 total_sectors, total_clusters, fat_clusters, rootdir_sectors;
@@ -1398,6 +1430,8 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 			goto out_fail;
 		}
 
+		bsx = (struct fat_boot_bsx *)(bh->b_data + FAT32_BSX_OFFSET);
+
 		fsinfo = (struct fat_boot_fsinfo *)fsinfo_bh->b_data;
 		if (!IS_FSINFO(fsinfo)) {
 			fat_msg(sb, KERN_WARNING, "Invalid FSINFO signature: "
@@ -1413,7 +1447,13 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 		}
 
 		brelse(fsinfo_bh);
+	} else {
+		bsx = (struct fat_boot_bsx *)(bh->b_data + FAT16_BSX_OFFSET);
 	}
+
+	/* interpret volume ID as a little endian 32 bit integer */
+	sbi->vol_id = (((u32)bsx->vol_id[0]) | ((u32)bsx->vol_id[1] << 8) |
+		((u32)bsx->vol_id[2] << 16) | ((u32)bsx->vol_id[3] << 24));
 
 	sbi->dir_per_block = sb->s_blocksize / sizeof(struct msdos_dir_entry);
 	sbi->dir_per_block_bits = ffs(sbi->dir_per_block) - 1;

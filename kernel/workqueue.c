@@ -22,6 +22,7 @@
  *
  * Please read Documentation/workqueue.txt for details.
  */
+#define DEBUG 1
 
 #include <linux/export.h>
 #include <linux/kernel.h>
@@ -2103,6 +2104,8 @@ __acquires(&pool->lock)
 	bool cpu_intensive = pwq->wq->flags & WQ_CPU_INTENSIVE;
 	int work_color;
 	struct worker *collision;
+	unsigned long long exec_start;
+
 #ifdef CONFIG_LOCKDEP
 	/*
 	 * It is permissible to free the struct work_struct from
@@ -2172,6 +2175,9 @@ __acquires(&pool->lock)
 
 	lock_map_acquire_read(&pwq->wq->lockdep_map);
 	lock_map_acquire(&lockdep_map);
+
+	exec_start = sched_clock();
+
 	trace_workqueue_execute_start(work);
 	worker->current_func(work);
 	/*
@@ -2179,6 +2185,9 @@ __acquires(&pool->lock)
 	 * point will only record its address.
 	 */
 	trace_workqueue_execute_end(work);
+	if ((sched_clock() - exec_start)> 1000000000) // dump log if execute more than 1 sec
+		pr_debug("WQ warning! work (%pf, %p) execute more than 1 sec, time: %llu ns\n", work->func, work, sched_clock() - exec_start);
+
 	lock_map_release(&lockdep_map);
 	lock_map_release(&pwq->wq->lockdep_map);
 

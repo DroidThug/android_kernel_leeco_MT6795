@@ -31,6 +31,17 @@
 #define I2O_MINOR		166
 #define MICROCODE_MINOR		184
 #define TUN_MINOR		200
+#define M_ACT_MISC_MINOR        201
+#define M_FDN_MISC_MINOR        202
+#define M_GLG_MISC_MINOR        203
+#define M_HRM_MISC_MINOR        204
+#define M_INPK_MISC_MINOR       205
+#define M_PDR_MISC_MINOR        206
+#define M_PKUP_MISC_MINOR       207
+#define M_SHK_MISC_MINOR        208
+#define M_STEP_C_MISC_MINOR     209
+#define M_TILT_MISC_MINOR       210
+#define M_WAG_MISC_MINOR        211
 #define MWAVE_MINOR		219	/* ACP/Mwave Modem */
 #define MPT_MINOR		220
 #define MPT2SAS_MINOR		221

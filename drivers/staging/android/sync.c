@@ -31,10 +31,19 @@
 #define CREATE_TRACE_POINTS
 #include "trace/sync.h"
 
+// [MTK] {{{
+// disable these logs temporarily
+// TODO: redirect these logs to proc_fs
+//#define SYNC_OBJ_DEBUG
+// [MTK] }}}
+
 static void sync_fence_signal_pt(struct sync_pt *pt);
 static int _sync_pt_has_signaled(struct sync_pt *pt);
 static void sync_fence_free(struct kref *kref);
 static void sync_dump(void);
+// [MTK] {{{
+static void sync_fence_dump_info(struct sync_fence *fence);
+// [MTK] }}}
 
 static LIST_HEAD(sync_timeline_list_head);
 static DEFINE_SPINLOCK(sync_timeline_list_lock);
@@ -79,12 +88,12 @@ static void sync_timeline_free(struct kref *kref)
 		container_of(kref, struct sync_timeline, kref);
 	unsigned long flags;
 
-	if (obj->ops->release_obj)
-		obj->ops->release_obj(obj);
-
 	spin_lock_irqsave(&sync_timeline_list_lock, flags);
 	list_del(&obj->sync_timeline_list);
 	spin_unlock_irqrestore(&sync_timeline_list_lock, flags);
+
+	if (obj->ops->release_obj)
+		obj->ops->release_obj(obj);
 
 	kfree(obj);
 }
@@ -92,14 +101,14 @@ static void sync_timeline_free(struct kref *kref)
 void sync_timeline_destroy(struct sync_timeline *obj)
 {
 	obj->destroyed = true;
+	smp_wmb();
 
 	/*
-	 * If this is not the last reference, signal any children
-	 * that their parent is going away.
+	 * signal any children that their parent is going away.
 	 */
+	sync_timeline_signal(obj);
 
-	if (!kref_put(&obj->kref, sync_timeline_free))
-		sync_timeline_signal(obj);
+	kref_put(&obj->kref, sync_timeline_free);
 }
 EXPORT_SYMBOL(sync_timeline_destroy);
 
@@ -318,7 +327,16 @@ static int sync_fence_copy_pts(struct sync_fence *dst, struct sync_fence *src)
 	list_for_each(pos, &src->pt_list_head) {
 		struct sync_pt *orig_pt =
 			container_of(pos, struct sync_pt, pt_list);
-		struct sync_pt *new_pt = sync_pt_dup(orig_pt);
+		// [MTK] {{{
+		// rjan Eide <orjan.eide@arm.com>
+		struct sync_pt *new_pt;
+
+		/* Skip already signaled points */
+		if (1 == orig_pt->status)
+			continue;
+		// [MTK] }}}
+
+		new_pt = sync_pt_dup(orig_pt);
 
 		if (new_pt == NULL)
 			return -ENOMEM;
@@ -338,6 +356,13 @@ static int sync_fence_merge_pts(struct sync_fence *dst, struct sync_fence *src)
 		struct sync_pt *src_pt =
 			container_of(src_pos, struct sync_pt, pt_list);
 		bool collapsed = false;
+
+		// [MTK] {{{
+		// rjan Eide <orjan.eide@arm.com>
+		/* Skip already signaled points */
+		if (1 == src_pt->status)
+			continue;
+		// [MTK] }}}
 
 		list_for_each_safe(dst_pos, n, &dst->pt_list_head) {
 			struct sync_pt *dst_pt =
@@ -384,6 +409,7 @@ static void sync_fence_detach_pts(struct sync_fence *fence)
 
 	list_for_each_safe(pos, n, &fence->pt_list_head) {
 		struct sync_pt *pt = container_of(pos, struct sync_pt, pt_list);
+
 		sync_timeline_remove_pt(pt);
 	}
 }
@@ -394,6 +420,7 @@ static void sync_fence_free_pts(struct sync_fence *fence)
 
 	list_for_each_safe(pos, n, &fence->pt_list_head) {
 		struct sync_pt *pt = container_of(pos, struct sync_pt, pt_list);
+
 		sync_pt_free(pt);
 	}
 }
@@ -466,6 +493,19 @@ struct sync_fence *sync_fence_merge(const char *name,
 	err = sync_fence_merge_pts(fence, b);
 	if (err < 0)
 		goto err;
+
+	// [MTK] {{{
+	// rjan Eide <orjan.eide@arm.com>
+	/* Make sure there is at least one point in the fence */
+	if (list_empty(&fence->pt_list_head)) {
+		struct sync_pt *orig_pt = list_first_entry(&a->pt_list_head,
+						struct sync_pt, pt_list);
+		struct sync_pt *new_pt = sync_pt_dup(orig_pt);
+
+		new_pt->fence = fence;
+		list_add(&new_pt->pt_list, &fence->pt_list_head);
+	}
+	// [MTK] }}}
 
 	list_for_each(pos, &fence->pt_list_head) {
 		struct sync_pt *pt =
@@ -614,14 +654,20 @@ int sync_fence_wait(struct sync_fence *fence, long timeout)
 	if (fence->status < 0) {
 		pr_info("fence error %d on [%p]\n", fence->status, fence);
 		sync_dump();
+// [MTK] {{{
+		sync_fence_dump_info(fence);
+// [MTK] }}}
 		return fence->status;
 	}
 
 	if (fence->status == 0) {
 		if (timeout > 0) {
-			pr_info("fence timeout on [%p] after %dms\n", fence,
+			pr_info("fence timeout on %s [%p] after %dms\n", fence->name, fence,
 				jiffies_to_msecs(timeout));
 			sync_dump();
+// [MTK] {{{
+			sync_fence_dump_info(fence);
+// [MTK] }}}
 		}
 		return -ETIME;
 	}
@@ -827,6 +873,7 @@ static long sync_fence_ioctl(struct file *file, unsigned int cmd,
 			     unsigned long arg)
 {
 	struct sync_fence *fence = file->private_data;
+
 	switch (cmd) {
 	case SYNC_IOC_WAIT:
 		return sync_fence_ioctl_wait(fence, arg);
@@ -856,18 +903,26 @@ static const char *sync_status_str(int status)
 static void sync_print_pt(struct seq_file *s, struct sync_pt *pt, bool fence)
 {
 	int status = pt->status;
+
+	// [MTK] {{{
+	// only dump non-signaled fence
+	if (status > 0) return;
+	// [MTK] }}}
+
 	seq_printf(s, "  %s%spt %s",
 		   fence ? pt->parent->name : "",
 		   fence ? "_" : "",
 		   sync_status_str(status));
 	if (pt->status) {
 		struct timeval tv = ktime_to_timeval(pt->timestamp);
+
 		seq_printf(s, "@%ld.%06ld", tv.tv_sec, tv.tv_usec);
 	}
 
 	if (pt->parent->ops->timeline_value_str &&
 	    pt->parent->ops->pt_value_str) {
 		char value[64];
+
 		pt->parent->ops->pt_value_str(pt, value, sizeof(value));
 		seq_printf(s, ": %s", value);
 		if (fence) {
@@ -883,6 +938,8 @@ static void sync_print_pt(struct seq_file *s, struct sync_pt *pt, bool fence)
 	seq_printf(s, "\n");
 }
 
+// [MTK] {{{
+#ifdef SYNC_OBJ_DEBUG
 static void sync_print_obj(struct seq_file *s, struct sync_timeline *obj)
 {
 	struct list_head *pos;
@@ -892,6 +949,7 @@ static void sync_print_obj(struct seq_file *s, struct sync_timeline *obj)
 
 	if (obj->ops->timeline_value_str) {
 		char value[64];
+
 		obj->ops->timeline_value_str(obj, value, sizeof(value));
 		seq_printf(s, ": %s", value);
 	} else if (obj->ops->print_obj) {
@@ -909,6 +967,8 @@ static void sync_print_obj(struct seq_file *s, struct sync_timeline *obj)
 	}
 	spin_unlock_irqrestore(&obj->child_list_lock, flags);
 }
+#endif
+// [MTK] }}}
 
 static void sync_print_fence(struct seq_file *s, struct sync_fence *fence)
 {
@@ -940,6 +1000,8 @@ static int sync_debugfs_show(struct seq_file *s, void *unused)
 	unsigned long flags;
 	struct list_head *pos;
 
+	// [MTK] {{{
+#ifdef SYNC_OBJ_DEBUG
 	seq_printf(s, "objs:\n--------------\n");
 
 	spin_lock_irqsave(&sync_timeline_list_lock, flags);
@@ -952,6 +1014,8 @@ static int sync_debugfs_show(struct seq_file *s, void *unused)
 		seq_printf(s, "\n");
 	}
 	spin_unlock_irqrestore(&sync_timeline_list_lock, flags);
+#endif
+	// [MTK] }}}
 
 	seq_printf(s, "fences:\n--------------\n");
 
@@ -960,8 +1024,16 @@ static int sync_debugfs_show(struct seq_file *s, void *unused)
 		struct sync_fence *fence =
 			container_of(pos, struct sync_fence, sync_fence_list);
 
+		// [MTK] {{{
+		// only dump non-signaled fence
+		if (fence->status > 0)
+			continue;
+		// [MTK] }}}
+
 		sync_print_fence(s, fence);
-		seq_printf(s, "\n");
+		// [MTK] {{{
+		//seq_printf(s, "\n");
+		// [MTK] }}}
 	}
 	spin_unlock_irqrestore(&sync_fence_list_lock, flags);
 	return 0;
@@ -986,10 +1058,16 @@ static __init int sync_debugfs_init(void)
 }
 late_initcall(sync_debugfs_init);
 
+// [MTK] {{{
+#ifdef SYNC_OBJ_DEBUG
 #define DUMP_CHUNK 256
 static char sync_dump_buf[64 * 1024];
+#endif
+// [MTK] }}}
 void sync_dump(void)
 {
+// [MTK] {{{
+#ifdef SYNC_OBJ_DEBUG
 	struct seq_file s = {
 		.buf = sync_dump_buf,
 		.size = sizeof(sync_dump_buf) - 1,
@@ -1001,6 +1079,7 @@ void sync_dump(void)
 	for (i = 0; i < s.count; i += DUMP_CHUNK) {
 		if ((s.count - i) > DUMP_CHUNK) {
 			char c = s.buf[i + DUMP_CHUNK];
+
 			s.buf[i + DUMP_CHUNK] = 0;
 			pr_cont("%s", s.buf + i);
 			s.buf[i + DUMP_CHUNK] = c;
@@ -1009,9 +1088,57 @@ void sync_dump(void)
 			pr_cont("%s", s.buf + i);
 		}
 	}
+#endif
+// [MTK] }}}
 }
 #else
 static void sync_dump(void)
 {
 }
 #endif
+
+// [MTK] {{{
+static void sync_fence_dump_info(struct sync_fence *fence)
+{
+	struct list_head *pos;
+	__u32 len = sizeof(struct sync_pt_info) + 16;
+	struct sync_pt_info *pt_info = kzalloc(len, GFP_KERNEL);
+	int i, ret;
+	char str[100];
+	size_t size_written = 0;
+
+	printk("fence %s, status=%d\n", fence->name, fence->status);
+
+	list_for_each(pos, &fence->pt_list_head) {
+		struct sync_pt *pt =
+			container_of(pos, struct sync_pt, pt_list);
+
+		ret = sync_fill_pt_info(pt, (u8 *)pt_info, len);
+
+		if (ret < 0)
+			goto out;
+		
+		size_written = snprintf(str, sizeof(str), "pt %s %s status(%d) val(",
+				pt_info->obj_name, pt_info->driver_name, pt_info->status);
+		if(size_written > sizeof(str))
+			goto out;
+
+		for(i=0; i<(pt_info->len - sizeof(struct sync_pt_info))/4; i++) {
+			size_written += snprintf(str + size_written, sizeof(str) - size_written,
+					"%d ", ((int*)(pt_info->driver_data))[i]);
+			if(size_written > sizeof(str))
+				goto out;
+		}
+
+		size_written += snprintf(str + size_written, sizeof(str) - size_written, ")\n");
+		if(size_written > sizeof(str))
+			goto out;
+		printk("%s", str);
+	}
+
+out:
+	kfree(pt_info);
+
+	return;
+}
+// [MTK] }}}

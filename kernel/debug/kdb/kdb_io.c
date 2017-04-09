@@ -57,6 +57,7 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
 	int escape_delay = 0;
 	get_char_func *f, *f_escape = NULL;
 	int key;
+	unsigned long long duration = 0;
 
 	for (f = &kdb_poll_funcs[0]; ; ++f) {
 		if (*f == NULL) {
@@ -80,6 +81,17 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
 			if (escape_delay) {
 				udelay(ESCAPE_UDELAY);
 				--escape_delay;
+			}
+			/* check timeout and force trigger kernel panic */
+			if (check_timeout) {
+				duration = sched_clock() - enter_time;
+				do_div(duration, 1000000000ULL);
+				if (duration > KE_TIMEOUT_SEC) {
+					kdb_printf("\nKDB timeout! No user input. \n");
+					strcpy(buffer, "go");
+					force_panic = 1;
+					return -1;
+				}
 			}
 			continue;
 		}
@@ -166,6 +178,12 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
 		}
 		break;	/* A key to process */
 	}
+
+	if (check_timeout) {
+		kdb_printf("\nUser input! \n");
+		check_timeout = 0;
+	}
+
 	return key;
 }
 
@@ -216,7 +234,7 @@ static char *kdb_read(char *buffer, size_t bufsize)
 	int i;
 	int diag, dtab_count;
 	int key;
-
+	static int last_crlf;
 
 	diag = kdbgetintenv("DTABCOUNT", &dtab_count);
 	if (diag)
@@ -237,6 +255,9 @@ poll_again:
 		return buffer;
 	if (key != 9)
 		tab = 0;
+	if (key != 10 && key != 13)
+		last_crlf = 0;
+
 	switch (key) {
 	case 8: /* backspace */
 		if (cp > buffer) {
@@ -254,7 +275,12 @@ poll_again:
 			*cp = tmp;
 		}
 		break;
-	case 13: /* enter */
+	case 10: /* new line */
+	case 13: /* carriage return */
+		/* handle \n after \r */
+		if (last_crlf && last_crlf != key)
+			break;
+		last_crlf = key;
 		*lastchar++ = '\n';
 		*lastchar++ = '\0';
 		if (!KDB_STATE(KGDB_TRANS)) {

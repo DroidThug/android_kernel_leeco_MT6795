@@ -1,0 +1,4 @@
+
+config MTK_MMC3542X
+	bool "MMC3542X for MediaTek package"
+	default n

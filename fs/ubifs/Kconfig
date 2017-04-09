@@ -5,7 +5,9 @@ config UBIFS_FS
 	select CRYPTO if UBIFS_FS_ADVANCED_COMPR
 	select CRYPTO if UBIFS_FS_LZO
 	select CRYPTO if UBIFS_FS_ZLIB
+	select CRYPTO if UBIFS_FS_LZ4K
 	select CRYPTO_LZO if UBIFS_FS_LZO
+	select CRYPTO_LZ4K if UBIFS_FS_LZ4K	
 	select CRYPTO_DEFLATE if UBIFS_FS_ZLIB
 	depends on MTD_UBI
 	help
@@ -27,6 +29,14 @@ config UBIFS_FS_LZO
 	default y
 	help
 	   LZO compressor is generally faster than zlib but compresses worse.
+	   Say 'Y' if unsure.
+
+config UBIFS_FS_LZ4K
+	bool "LZ4K compression support" if UBIFS_FS_ADVANCED_COMPR
+	depends on UBIFS_FS
+	default n
+	help
+	   LZ4K compressor is generally faster than zlib but compresses worse.
 	   Say 'Y' if unsure.
 
 config UBIFS_FS_ZLIB

@@ -7,7 +7,7 @@
 */
 
 #include "fuse_i.h"
-
+#include "fuse.h"
 #include <linux/pagemap.h>
 #include <linux/slab.h>
 #include <linux/file.h>
@@ -135,6 +135,7 @@ static void fuse_evict_inode(struct inode *inode)
 
 static int fuse_remount_fs(struct super_block *sb, int *flags, char *data)
 {
+	sync_filesystem(sb);
 	if (*flags & MS_MANDLOCK)
 		return -EINVAL;
 
@@ -1298,7 +1299,7 @@ static int __init fuse_init(void)
 
 	sanitize_global_limit(&max_user_bgreq);
 	sanitize_global_limit(&max_user_congthresh);
-
+	fuse_iolog_init();
 	return 0;
 
  err_sysfs_cleanup:
@@ -1319,6 +1320,7 @@ static void __exit fuse_exit(void)
 	fuse_sysfs_cleanup();
 	fuse_fs_cleanup();
 	fuse_dev_cleanup();
+	fuse_iolog_exit();
 }
 
 module_init(fuse_init);

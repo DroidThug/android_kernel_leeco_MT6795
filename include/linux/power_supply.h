@@ -15,6 +15,7 @@
 
 #include <linux/workqueue.h>
 #include <linux/leds.h>
+#include <linux/types.h>
 
 struct device;
 
@@ -37,6 +38,7 @@ enum {
 	POWER_SUPPLY_STATUS_DISCHARGING,
 	POWER_SUPPLY_STATUS_NOT_CHARGING,
 	POWER_SUPPLY_STATUS_FULL,
+	POWER_SUPPLY_STATUS_CMD_DISCHARGING,
 };
 
 enum {
@@ -140,6 +142,31 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_TIME_TO_FULL_AVG,
 	POWER_SUPPLY_PROP_TYPE, /* use power_supply.type instead */
 	POWER_SUPPLY_PROP_SCOPE,
+	/* Local extensions */
+	POWER_SUPPLY_PROP_USB_HC,
+	POWER_SUPPLY_PROP_USB_OTG,
+	POWER_SUPPLY_PROP_CHARGE_ENABLED,
+	/* Local extensions of type int64_t */
+	POWER_SUPPLY_PROP_CHARGE_COUNTER_EXT,
+	/* 20100723 James Lo */
+	POWER_SUPPLY_PROP_batt_vol,
+	POWER_SUPPLY_PROP_batt_temp,
+	POWER_SUPPLY_PROP_Usb_Charging_Current,
+	/* 20100723 Add for EM */
+	POWER_SUPPLY_PROP_TemperatureR,
+	POWER_SUPPLY_PROP_TempBattVoltage,
+	POWER_SUPPLY_PROP_InstatVolt,
+	POWER_SUPPLY_PROP_BatteryAverageCurrent,
+	POWER_SUPPLY_PROP_BatterySenseVoltage,
+	POWER_SUPPLY_PROP_ISenseVoltage,
+	POWER_SUPPLY_PROP_ChargerVoltage,
+	/* Dual battery */
+	POWER_SUPPLY_PROP_status_smb,
+	POWER_SUPPLY_PROP_capacity_smb,
+	POWER_SUPPLY_PROP_present_smb,
+	/* ADB CMD Discharging */
+	POWER_SUPPLY_PROP_adjust_power,
+	POWER_SUPPLY_PROP_DISABLE_QUICK_CHARGE,
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
@@ -155,11 +182,13 @@ enum power_supply_type {
 	POWER_SUPPLY_TYPE_USB_DCP,	/* Dedicated Charging Port */
 	POWER_SUPPLY_TYPE_USB_CDP,	/* Charging Downstream Port */
 	POWER_SUPPLY_TYPE_USB_ACA,	/* Accessory Charger Adapters */
+	POWER_SUPPLY_TYPE_WIRELESS,	/* Wireless Charger */
 };
 
 union power_supply_propval {
 	int intval;
 	const char *strval;
+	int64_t int64val;
 };
 
 struct power_supply {
@@ -194,6 +223,8 @@ struct power_supply {
 	/* private */
 	struct device *dev;
 	struct work_struct changed_work;
+	spinlock_t changed_lock;
+	bool changed;
 #ifdef CONFIG_THERMAL
 	struct thermal_zone_device *tzd;
 	struct thermal_cooling_device *tcd;

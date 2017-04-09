@@ -3,7 +3,7 @@
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
-
+#define DEBUG
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
@@ -53,7 +53,10 @@
 #include <linux/oom.h>
 #include <linux/writeback.h>
 #include <linux/shm.h>
-
+#ifdef CONFIG_MTPROF
+#include "mt_sched_mon.h"
+#include "mt_cputime.h"
+#endif
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/pgtable.h>
@@ -712,13 +715,24 @@ static void check_stack_usage(void)
 static inline void check_stack_usage(void) {}
 #endif
 
+#ifdef CONFIG_SCHEDSTATS
+/* mt shceduler profiling*/
+extern void end_mtproc_info(struct task_struct *p);
+#endif
 void do_exit(long code)
 {
 	struct task_struct *tsk = current;
 	int group_dead;
 
 	profile_task_exit(tsk);
-
+#ifdef CONFIG_MTPROF
+#ifdef CONFIG_MTPROF_CPUTIME
+	/* mt shceduler profiling*/
+	end_mtproc_info(tsk);
+#endif
+	/* mt throttle monitor */
+	end_mt_rt_mon_info(tsk);
+#endif
 	WARN_ON(blk_needs_flush_plug(tsk));
 
 	if (unlikely(in_interrupt()))
@@ -841,7 +855,7 @@ void do_exit(long code)
 	/*
 	 * Make sure we are holding no locks:
 	 */
-	debug_check_no_locks_held(tsk);
+	debug_check_no_locks_held();
 	/*
 	 * We can do this unlocked here. The futex code uses this flag
 	 * just to verify whether the pi state cleanup has been done

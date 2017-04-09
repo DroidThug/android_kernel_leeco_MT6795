@@ -34,7 +34,23 @@
 #include <linux/random.h>
 #include "ubifs.h"
 
+/* Jack note: this varibale is record max clean znode count until now */
+extern long ubifs_max_clean_zn_cnt;
 static DEFINE_SPINLOCK(dbg_lock);
+
+/* note: this varibale is record current total znode */
+uint32_t total_znode = 0;
+
+/* note: this varibale is record current total znode buffer length*/
+uint32_t total_tnc_leaf_lens = 0;
+
+/* note: this varibale is record current total cleanable znode*/
+uint32_t total_clean_znode = 0;
+
+/* note: this varibale is record current total cleanable znode buffer length*/
+uint32_t total_clean_tnc_leaf_lens = 0;
+
+static struct ubifs_global_debug_tnc g_dbg_tnc_info;
 
 static const char *get_key_fmt(int fmt)
 {
@@ -870,6 +886,11 @@ void ubifs_dump_znode(const struct ubifs_info *c,
 	pr_err("zbranches:\n");
 	for (n = 0; n < znode->child_cnt; n++) {
 		zbr = &znode->zbranch[n];
+		if (zbr->znode)
+		{
+ 		  total_znode++;		
+		  total_tnc_leaf_lens += zbr->len;
+		}
 		if (znode->level > 0)
 			pr_err("\t%d: znode %p LEB %d:%d len %d key %s\n",
 			       n, zbr->znode, zbr->lnum, zbr->offs, zbr->len,
@@ -917,11 +938,14 @@ void ubifs_dump_pnode(struct ubifs_info *c, struct ubifs_pnode *pnode,
 		       i, lp->free, lp->dirty, lp->flags, lp->lnum);
 	}
 }
-
+extern atomic_long_t ubifs_clean_zn_cnt;
 void ubifs_dump_tnc(struct ubifs_info *c)
 {
 	struct ubifs_znode *znode;
 	int level;
+
+	total_znode = 0;
+	total_tnc_leaf_lens = 0;
 
 	pr_err("\n");
 	pr_err("(pid %d) start dumping TNC tree\n", current->pid);
@@ -937,6 +961,9 @@ void ubifs_dump_tnc(struct ubifs_info *c)
 		znode = ubifs_tnc_levelorder_next(c->zroot.znode, znode);
 	}
 	pr_err("(pid %d) finish dumping TNC tree\n", current->pid);
+	pr_err("total_znode =  %d, total_tnc_leaf_lens = %d bytes at TNC tree\n", total_znode,total_tnc_leaf_lens);
+	
+	
 }
 
 static int dump_znode(struct ubifs_info *c, struct ubifs_znode *znode,
@@ -2687,6 +2714,283 @@ static int provide_user_output(int val, char __user *u, size_t count,
 	return simple_read_from_buffer(u, count, ppos, buf, 2);
 }
 
+void dbg_cal_znode_lens(const struct ubifs_info *c,
+		    const struct ubifs_znode *znode)
+{
+    int n;
+    const struct ubifs_zbranch *zbr;
+
+    spin_lock(&dbg_lock);
+
+    if (znode->child_cnt <= 0 || znode->child_cnt > c->fanout) {
+        spin_unlock(&dbg_lock);
+        return;
+    }
+
+    for (n = 0; n < znode->child_cnt; n++) {
+        zbr = &znode->zbranch[n];
+
+        if (zbr->znode)
+        {       
+          if (znode->level > 0) //calculate znode number (level > 0)
+          {     
+              if (!ubifs_zn_dirty(zbr->znode))
+              {       
+                  total_clean_znode++;
+                  //total_clean_tnc_leaf_lens += c->max_znode_sz;
+
+              }
+              //total_tnc_leaf_lens += c->max_znode_sz;              
+              total_znode++;        
+          }
+          else //calculate leaf buffer size
+          {         
+            total_tnc_leaf_lens += zbr->len;
+            total_clean_tnc_leaf_lens += zbr->len;
+          }
+        }
+    }
+    spin_unlock(&dbg_lock);
+}
+
+/**
+ * provide_lca_user_output - provide output to the user reading a debugfs file.
+ * @val: boolean value for the answer
+ * @u: the buffer to store the answer at
+ * @count: size of the buffer
+ * @ppos: position in the @u output buffer
+ *
+ * This is a simple helper function which stores @val boolean value in the user
+ * buffer when the user reads one of UBIFS debugfs files. Returns amount of
+ * bytes written to @u in case of success and a negative error code in case of
+ * failure.
+ */
+static int provide_lca_user_output(int val, char __user *u, size_t count,
+			       loff_t *ppos,struct ubifs_info *c)
+{
+	char buf[255];
+	int lens = 0;
+
+
+    snprintf(buf, 255, "c->default_compr = %d, c->bulkread = %d\n",c->default_compr,c->bulk_read);
+    lens = strlen(buf);
+    ubifs_err("buf lends = %d, buff[%d] = %d, buff[%d] = %d, buff[%d] = %d,\n",lens,lens,buf[lens],lens-1,buf[lens-1],lens-2,buf[lens-2]);
+
+	return simple_read_from_buffer(u, count, ppos, buf, lens);
+}
+
+
+/**
+ * dbg_show_all_tnc_info - provide output to the user reading tnc information.
+ * @val: boolean value for the answer
+ * @u: the buffer to store the answer at
+ * @count: size of the buffer
+ * @ppos: position in the @u output buffer
+ *
+ * This is a simple helper function which stores @val boolean value in the user
+ * buffer when the user reads one of UBIFS debugfs files. Returns amount of
+ * bytes written to @u in case of success and a negative error code in case of
+ * failure.
+ */
+static int dbg_show_all_tnc_info(int val, char __user *u, size_t count,
+			       loff_t *ppos)
+{
+	struct ubifs_info *c=NULL;
+	struct list_head *p;
+	struct list_head *pFirst;
+	char buf[512];
+	int lens = 0;
+	uint32_t total_cleanable_tnc = 0;
+	uint32_t total_tnc_memory = 0;
+	
+	//int freed = 0;
+	struct ubifs_znode *znode;
+	int level;
+	int u_id = 0;
+	pr_err("dbg_show_all_tnc_info enter\n");
+
+	spin_lock(&ubifs_infos_lock);
+
+	/* Iterate over all mounted UBIFS file-systems to get all tnc information*/
+	p = ubifs_infos.next;
+	pFirst = p;
+	pr_err("dbg_show_all_tnc_info first p  = 0x%p,&ubifs_infos = 0x%p\n",p,&ubifs_infos);
+
+
+	memset(&g_dbg_tnc_info,0, sizeof(g_dbg_tnc_info));
+	
+	while (p != &ubifs_infos) {
+
+		if (u_id > 20)
+			break;
+		
+		c = list_entry(p, struct ubifs_info, infos_list);
+
+		/*
+		 * We're holding 'c->umount_mutex', so the file-system won't go
+		 * away.
+		 */
+ 
+		if (!mutex_trylock(&c->umount_mutex)) {
+			/* Some un-mount is in progress, try next FS */
+			p = p->next;
+			continue;
+		}
+		/*
+		 * We're holding 'c->umount_mutex', so the file-system won't go
+		 * away.
+		 */
+		if (!mutex_trylock(&c->tnc_mutex)) {
+			mutex_unlock(&c->umount_mutex);
+			//*contention = 1;
+			p = p->next;
+			continue;
+		}
+		
+ 
+
+		spin_unlock(&ubifs_infos_lock);
+
+
+		total_znode = 0;
+		total_tnc_leaf_lens = 0;
+		total_clean_znode=0;
+		total_clean_tnc_leaf_lens=0;
+		
+		pr_err("\n");
+		pr_err("(pid %d) start dumping TNC tree, u_id = %d\n", current->pid,u_id);
+	    pr_err("c->zroot.znode = 0x%p\n", c->zroot.znode);
+
+		if (c->zroot.znode)
+		{
+			pr_err("c->zroot.znode = 0x%p #2\n", c->zroot.znode);
+		
+    		znode = ubifs_tnc_levelorder_next(c->zroot.znode, NULL);
+    		level = znode->level;
+			pr_err("c->zroot.znode = 0x%p #3\n", c->zroot.znode);
+			
+    		while (znode) {
+    		
+    			dbg_cal_znode_lens(c, znode);
+    			znode = ubifs_tnc_levelorder_next(c->zroot.znode, znode);
+    		}
+    
+	        pr_err("c->zroot.znode = 0x%p #4\n", c->zroot.znode);
+			
+    		pr_err("u[%d],total_znode = %d, total_tnc_leaf_lens = %d, c->max_znode_sz = %d,total_clean_znode = %d,total_clean_tnc_leaf_lens = %d\n",u_id,total_znode,total_tnc_leaf_lens,c->max_znode_sz,
+    		total_clean_znode,total_clean_tnc_leaf_lens);
+
+			g_dbg_tnc_info.total_znode += total_znode;
+			g_dbg_tnc_info.total_tnc_leaf_lens += total_tnc_leaf_lens;
+			g_dbg_tnc_info.total_clean_znode += total_clean_znode;
+			g_dbg_tnc_info.total_clean_tnc_leaf_lens += total_clean_tnc_leaf_lens;
+			g_dbg_tnc_info.total_ubifs_volume += 1;
+						
+		}
+		else
+		{
+			pr_err("c->zroot.znode = 0x%p error!!\n",c->zroot.znode);
+		}
+		u_id++;
+
+		mutex_unlock(&c->tnc_mutex);
+
+		/*
+		 * OK, now we have TNC locked, the file-system cannot go away -
+		 * it is safe to reap the cache.
+		 */
+		spin_lock(&ubifs_infos_lock);
+		/* Get the next list element before we move this one */
+		p = p->next;
+
+
+		pr_err("dbg_show_all_tnc_info next p	= 0x%p\n",p);
+		
+		mutex_unlock(&c->umount_mutex);		
+		if (pFirst == p)
+		{
+			pr_err("pFirst == p, u_id = %d\n",u_id);
+		
+			break;
+		}		
+	}
+	spin_unlock(&ubifs_infos_lock);
+
+	
+	/* note: this varibale is record total cleanable znode usage memory size which include znode and buffer (bytes)*/
+
+	total_cleanable_tnc = g_dbg_tnc_info.total_clean_tnc_leaf_lens + g_dbg_tnc_info.total_clean_znode*c->max_znode_sz;
+
+	/* note: this varibale is record total znode usage memory size which include znode and buffer (bytes)*/
+
+	total_tnc_memory = g_dbg_tnc_info.total_tnc_leaf_lens + g_dbg_tnc_info.total_znode*c->max_znode_sz;
+
+    
+    snprintf(buf, 512, "total_ubifs_vol = %d\r\ntotal_znode = %d\r\ntotal_tnc_leaf_lens = %d\r\nc->max_znode_sz = %d\r\ntotal_clean_znode = %d\r\ntotal_cleanable_tnc = %d\r\nubifs_max_clean_zn_cnt = %ld\r\ntotal_tnc_memory = %d\r\nubifs_clean_zn_cnt = %ld\r\n",g_dbg_tnc_info.total_ubifs_volume,g_dbg_tnc_info.total_znode,g_dbg_tnc_info.total_tnc_leaf_lens,c->max_znode_sz,
+        g_dbg_tnc_info.total_clean_znode,total_cleanable_tnc,ubifs_max_clean_zn_cnt,total_tnc_memory,atomic_long_read(&ubifs_clean_zn_cnt));
+
+	lens = strlen(buf);
+
+	pr_err("dbg_show_all_tnc_info buff leng = %d\n",lens);
+	
+	return simple_read_from_buffer(u, count, ppos, buf, lens);
+	
+}
+
+/**
+* provide_lca_tnc_output - provide output to the user reading tnc information per volume.
+* @val: boolean value for the answer
+* @u: the buffer to store the answer at
+* @count: size of the buffer
+* @ppos: position in the @u output buffer
+*
+* This is a simple helper function which stores @val boolean value in the user
+* buffer when the user reads one of UBIFS debugfs files. Returns amount of
+* bytes written to @u in case of success and a negative error code in case of
+* failure.
+*/
+static int provide_lca_tnc_output(int val, char __user *u, size_t count,
+			       loff_t *ppos,struct ubifs_info *c)
+{
+	struct ubifs_znode *znode;
+	int level;
+	char buf[512];
+	int lens = 0;
+	uint32_t total_cleanable_tnc = 0;
+	uint32_t total_tnc_memory = 0;
+
+	total_znode = 0;
+	total_tnc_leaf_lens = 0;
+	total_clean_znode=0;
+	total_clean_tnc_leaf_lens=0;
+
+	pr_err("\n");
+	pr_err("(pid %d) start calculate TNC tree znode memory usage\n", current->pid);
+	znode = ubifs_tnc_levelorder_next(c->zroot.znode, NULL);
+	level = znode->level;
+ 	while (znode) {
+
+ 		dbg_cal_znode_lens(c, znode);
+		znode = ubifs_tnc_levelorder_next(c->zroot.znode, znode);
+	}
+
+	/* note: total_tnc_leaf_lens only include leaf buffer, the total used memory need add znode memory usage (total_znode * c->max_znode_sz)(bytes)*/
+
+	total_tnc_memory = total_tnc_leaf_lens + total_znode * c->max_znode_sz;
+	total_cleanable_tnc = total_clean_tnc_leaf_lens + total_clean_znode * c->max_znode_sz;
+	
+
+    snprintf(buf, 512, "total_znode = %d\r\ntotal_tnc_leaf_lens = %d\r\nc->max_znode_sz = %d\r\ntotal_clean_znode = %d\r\ntotal_cleanable_tnc = %d\r\ntotal_tnc_memory = %d\r\n",total_znode,total_tnc_leaf_lens,c->max_znode_sz,
+		total_clean_znode,total_cleanable_tnc,total_tnc_memory);
+
+	lens = strlen(buf);
+	
+	return simple_read_from_buffer(u, count, ppos, buf, lens);
+ 	
+	
+}
+
+
 static ssize_t dfs_file_read(struct file *file, char __user *u, size_t count,
 			     loff_t *ppos)
 {
@@ -2709,6 +3013,40 @@ static ssize_t dfs_file_read(struct file *file, char __user *u, size_t count,
 		val = d->tst_rcvry;
 	else if (dent == d->dfs_ro_error)
 		val = c->ro_error;
+	else if (dent == d->dfs_lca_debug)
+	{	
+	  val = 1;
+	  ubifs_err("test dfs_lca_debug should=1, count = %zu\n",count);
+	  return provide_lca_user_output(val, u, count, ppos,c);
+	  
+	}
+	else if (dent == d->dfs_lca_show_tnc)
+	{	
+	  val = 1;
+	  ubifs_err("test provide_lca_tnc_output \n");
+	  return provide_lca_tnc_output(val, u, count, ppos,c);
+	  
+	}	
+	else if (dent == d->dfs_wbuf_count)
+	{	
+	  	char buf[100];
+	  	int i,len;
+		len = snprintf(buf, 100, "GC/BASE/DATA: ");
+		for(i = 0 ; i < c->jhead_cnt ; i++) {
+			len += snprintf(buf+len, 100-len, "%lld/", c->jheads[i].wbuf.w_count);
+		}
+		snprintf(buf+len-1, 100-len+1, "\n");
+	  	return simple_read_from_buffer(u, count, ppos, buf, len);
+	} 
+	else if (dent == d->dfs_host_wcount)
+	{
+	  	char buf[100];
+	  	int len;
+		len = snprintf(buf, 100, "host write: ");
+		len += snprintf(buf+len, 100-len, "%d\n", c->host_wcount);
+	  	return simple_read_from_buffer(u, count, ppos, buf, len);
+	
+	}
 	else
 		return -EINVAL;
 
@@ -2912,6 +3250,44 @@ int dbg_debugfs_init_fs(struct ubifs_info *c)
 		goto out_remove;
 	d->dfs_ro_error = dent;
 
+	fname = "lca_debug";
+	dent = debugfs_create_file(fname, S_IRUSR , d->dfs_dir, c,
+			&dfs_fops);
+
+	if (IS_ERR_OR_NULL(dent))
+		goto out_remove;
+
+
+	d->dfs_lca_debug = dent;
+
+	fname = "lca_tnc";
+	dent = debugfs_create_file(fname, S_IRUSR , d->dfs_dir, c,
+			&dfs_fops);
+
+	if (IS_ERR_OR_NULL(dent))
+		goto out_remove;
+
+	d->dfs_lca_show_tnc = dent;
+
+	fname = "wbuf_count";
+	dent = debugfs_create_file(fname, S_IRUSR , d->dfs_dir, c,
+			&dfs_fops);
+
+	if (IS_ERR_OR_NULL(dent))
+		goto out_remove;
+
+	d->dfs_wbuf_count = dent;
+
+	fname = "host_wcount";
+	dent = debugfs_create_file(fname, S_IRUSR , d->dfs_dir, c,
+			&dfs_fops);
+
+	if (IS_ERR_OR_NULL(dent))
+		goto out_remove;
+
+	d->dfs_host_wcount = dent;
+
+
 	return 0;
 
 out_remove:
@@ -2941,6 +3317,8 @@ static struct dentry *dfs_chk_orph;
 static struct dentry *dfs_chk_lprops;
 static struct dentry *dfs_chk_fs;
 static struct dentry *dfs_tst_rcvry;
+static struct dentry *dfs_lca_debug;
+
 
 static ssize_t dfs_global_file_read(struct file *file, char __user *u,
 				    size_t count, loff_t *ppos)
@@ -2960,6 +3338,11 @@ static ssize_t dfs_global_file_read(struct file *file, char __user *u,
 		val = ubifs_dbg.chk_fs;
 	else if (dent == dfs_tst_rcvry)
 		val = ubifs_dbg.tst_rcvry;
+	else if (dent == dfs_lca_debug)
+	{
+		val = 1;	
+		return dbg_show_all_tnc_info(val, u, count, ppos);
+	}
 	else
 		return -EINVAL;
 
@@ -3065,6 +3448,14 @@ int dbg_debugfs_init(void)
 	if (IS_ERR_OR_NULL(dent))
 		goto out_remove;
 	dfs_tst_rcvry = dent;
+
+
+	fname = "lca_tnc";
+	dent = debugfs_create_file(fname, S_IRUSR , dfs_rootdir, NULL,
+				   &dfs_global_fops);
+	if (IS_ERR_OR_NULL(dent))
+		goto out_remove;
+	dfs_lca_debug = dent;	
 
 	return 0;
 

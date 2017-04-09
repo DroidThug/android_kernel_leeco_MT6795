@@ -142,7 +142,7 @@ tlb_start_vma(struct mmu_gather *tlb, struct vm_area_struct *vma)
 {
 	if (!tlb->fullmm) {
 		tlb->vma = vma;
-		tlb->range_start = TASK_SIZE;
+		tlb->range_start = ULONG_MAX;
 		tlb->range_end = 0;
 	}
 }

@@ -69,6 +69,10 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_MTK_EXTMEM
+#include <linux/exm_driver.h>
+#endif
+
 #ifdef LAST_NID_NOT_IN_PAGE_FLAGS
 #warning Unfortunate NUMA and NUMA Balancing config, growing page-frame for last_nid.
 #endif
@@ -1643,6 +1647,7 @@ no_page_table:
 		return ERR_PTR(-EFAULT);
 	return page;
 }
+EXPORT_SYMBOL_GPL(follow_page_mask);
 
 static inline int stack_guard_page(struct vm_area_struct *vma, unsigned long addr)
 {
@@ -1787,11 +1792,22 @@ long __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 			page_mask = 0;
 			goto next_page;
 		}
+    #ifdef CONFIG_MTK_EXTMEM
+        if (!vma || !(vm_flags & vma->vm_flags))
+		    return i ? : -EFAULT;
 
+		if (vma->vm_flags & (VM_IO | VM_PFNMAP))
+		{
+		    /*Would pass VM_IO | VM_RESERVED | VM_PFNMAP. (for Reserved Physical Memory PFN Mapping Usage)*/
+		    if(!((vma->vm_flags&VM_IO)&&(vma->vm_flags&VM_RESERVED)&&(vma->vm_flags&VM_PFNMAP)))
+			    return i ? : -EFAULT;
+        }
+    #else
 		if (!vma ||
 		    (vma->vm_flags & (VM_IO | VM_PFNMAP)) ||
 		    !(vm_flags & vma->vm_flags))
 			return i ? : -EFAULT;
+    #endif
 
 		if (is_vm_hugetlb_page(vma)) {
 			i = follow_hugetlb_page(mm, vma, pages, vmas,
@@ -2367,12 +2383,18 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
 	 * un-COW'ed pages by matching them up with "vma->vm_pgoff".
 	 * See vm_normal_page() for details.
 	 */
+#ifdef CONFIG_MTK_EXTMEM
+	if (addr == vma->vm_start && end == vma->vm_end)
+		vma->vm_pgoff = pfn;
+	else if (is_cow_mapping(vma->vm_flags))
+		return -EINVAL;
+#else
 	if (is_cow_mapping(vma->vm_flags)) {
 		if (addr != vma->vm_start || end != vma->vm_end)
 			return -EINVAL;
 		vma->vm_pgoff = pfn;
 	}
-
+#endif
 	err = track_pfn_remap(vma, &prot, pfn, addr, PAGE_ALIGN(size));
 	if (err)
 		return -EINVAL;
@@ -4120,6 +4142,24 @@ static int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
 		ret = get_user_pages(tsk, mm, addr, 1,
 				write, 1, &page, &vma);
 		if (ret <= 0) {
+#ifdef CONFIG_MTK_EXTMEM
+			if (!write) {
+				vma = find_vma(mm, addr);
+				if (!vma || vma->vm_start > addr)
+					break;
+				if (vma->vm_end < addr + len)
+					len = vma->vm_end - addr;
+				if (extmem_in_mspace(vma)) {
+					unsigned long pa = vma->vm_pgoff << PAGE_SHIFT;
+					void *extmem_va =
+						(void *)(get_virt_from_mspace(pa) + (addr - vma->vm_start));
+
+					memcpy(buf, extmem_va, len);
+					buf += len;
+					break;
+				}
+			}
+#endif
 			/*
 			 * Check if this is a VM_IO | VM_PFNMAP VMA, which
 			 * we can access using slightly different code.

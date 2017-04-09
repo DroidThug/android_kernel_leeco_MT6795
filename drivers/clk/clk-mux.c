@@ -17,6 +17,11 @@
 #include <linux/io.h>
 #include <linux/err.h>
 
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#define MT_CCF_DEBUG	1
+#define MT_CCF_BRINGUP	0 /* FIXME: only for bring up */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
+
 /*
  * DOC: basic adjustable multiplexer clock that cannot gate
  *
@@ -35,6 +40,14 @@ static u8 clk_mux_get_parent(struct clk_hw *hw)
 	int num_parents = __clk_get_num_parents(hw->clk);
 	u32 val;
 
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#if MT_CCF_DEBUG
+	pr_debug("[CCF] %s: mux=%s\n", __func__, __clk_get_name(mux->hw.clk));
+#endif /* MT_CCF_DEBUG */
+#if MT_CCF_BRINGUP
+	return 1;
+#endif /* MT_CCF_BRINGUP */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	/*
 	 * FIXME need a mux-specific flag to determine if val is bitwise or numeric
 	 * e.g. sys_clkin_ck's clksel field is 3 bits wide, but ranges from 0x1
@@ -72,6 +85,15 @@ static int clk_mux_set_parent(struct clk_hw *hw, u8 index)
 	u32 val;
 	unsigned long flags = 0;
 
+#if !defined(CONFIG_MTK_LEGACY) /* FIXME: only for bring up */
+#if MT_CCF_DEBUG
+	pr_debug("[CCF] %s: mux=%s, index=%u\n", __func__,
+	       __clk_get_name(mux->hw.clk), index);
+#endif /* MT_CCF_DEBUG */
+#if MT_CCF_BRINGUP
+	return 0;
+#endif /* MT_CCF_BRINGUP */
+#endif /* !defined(CONFIG_MTK_LEGACY) */
 	if (mux->table)
 		index = mux->table[index];
 

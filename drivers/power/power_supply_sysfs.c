@@ -33,7 +33,7 @@
 
 #define POWER_SUPPLY_ATTR(_name)					\
 {									\
-	.attr = { .name = #_name },					\
+	.attr = { .name = #_name, .mode=0664, },					\
 	.show = power_supply_show_property,				\
 	.store = power_supply_store_property,				\
 }
@@ -45,10 +45,10 @@ static ssize_t power_supply_show_property(struct device *dev,
 					  char *buf) {
 	static char *type_text[] = {
 		"Unknown", "Battery", "UPS", "Mains", "USB",
-		"USB_DCP", "USB_CDP", "USB_ACA"
+		"USB_DCP", "USB_CDP", "USB_ACA", "Wireless"
 	};
 	static char *status_text[] = {
-		"Unknown", "Charging", "Discharging", "Not charging", "Full"
+		"Unknown", "Charging", "Discharging", "Not charging", "Full", "Cmd discharging"
 	};
 	static char *charge_type[] = {
 		"Unknown", "N/A", "Trickle", "Fast"
@@ -104,8 +104,13 @@ static ssize_t power_supply_show_property(struct device *dev,
 		return sprintf(buf, "%s\n", scope_text[value.intval]);
 	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
 		return sprintf(buf, "%s\n", value.strval);
+        else if (off == POWER_SUPPLY_PROP_status_smb)
+		return sprintf(buf, "%s\n", status_text[value.intval]);
 
-	return sprintf(buf, "%d\n", value.intval);
+	if (off == POWER_SUPPLY_PROP_CHARGE_COUNTER_EXT)
+		return sprintf(buf, "%lld\n", value.int64val);
+	else
+		return sprintf(buf, "%d\n", value.intval);
 }
 
 static ssize_t power_supply_store_property(struct device *dev,
@@ -189,6 +194,31 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(time_to_full_avg),
 	POWER_SUPPLY_ATTR(type),
 	POWER_SUPPLY_ATTR(scope),
+	/* Local extensions */
+	POWER_SUPPLY_ATTR(usb_hc),
+	POWER_SUPPLY_ATTR(usb_otg),
+	POWER_SUPPLY_ATTR(charge_enabled),
+	/* Local extensions of type int64_t */
+	POWER_SUPPLY_ATTR(charge_counter_ext),
+	/* 20100723 James Lo */
+	POWER_SUPPLY_ATTR(batt_vol),
+	POWER_SUPPLY_ATTR(batt_temp),
+	POWER_SUPPLY_ATTR(Usb_Charging_Current),
+	/* 20100405 Add for EM */
+	POWER_SUPPLY_ATTR(TemperatureR),
+	POWER_SUPPLY_ATTR(TempBattVoltage),
+	POWER_SUPPLY_ATTR(InstatVolt),
+	POWER_SUPPLY_ATTR(BatteryAverageCurrent),
+	POWER_SUPPLY_ATTR(BatterySenseVoltage),
+	POWER_SUPPLY_ATTR(ISenseVoltage),
+	POWER_SUPPLY_ATTR(ChargerVoltage),
+	/* Dual battery */
+	POWER_SUPPLY_ATTR(status_smb),
+	POWER_SUPPLY_ATTR(capacity_smb),
+	POWER_SUPPLY_ATTR(present_smb),
+	/* ADB CMD Discharging */
+	POWER_SUPPLY_ATTR(adjust_power),
+	POWER_SUPPLY_ATTR(disable_quick_charge),
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_ATTR(model_name),
 	POWER_SUPPLY_ATTR(manufacturer),

@@ -56,6 +56,9 @@ DEFINE_SPINLOCK(ubifs_infos_lock);
 
 /* Global clean znode counter (for all mounted UBIFS instances) */
 atomic_long_t ubifs_clean_zn_cnt;
+/* Global max clean znode counter (for all mounted UBIFS instances) */
+/* Jack note: this varibale is record max clean znode count until now */
+long ubifs_max_clean_zn_cnt = 0;
 
 /**
  * shrink_tnc - shrink TNC tree.
@@ -281,6 +284,10 @@ int ubifs_shrinker(struct shrinker *shrink, struct shrink_control *sc)
 	int nr = sc->nr_to_scan;
 	int freed, contention = 0;
 	long clean_zn_cnt = atomic_long_read(&ubifs_clean_zn_cnt);
+
+	if (ubifs_max_clean_zn_cnt < clean_zn_cnt)
+		ubifs_max_clean_zn_cnt = clean_zn_cnt; //Jack added for record maximum clean zn node
+		
 
 	if (nr == 0)
 		/*

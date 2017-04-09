@@ -44,6 +44,10 @@ struct bug_entry {
  * really the *only* solution?  There are usually better options, where
  * users don't need to reboot ASAP and can mostly shut down cleanly.
  */
+#ifdef __aarch64__
+#define BUG() *((unsigned *)0xdead) = 0x0aee
+#define HAVE_ARCH_BUG
+#endif
 #ifndef HAVE_ARCH_BUG
 #define BUG() do { \
 	printk("BUG: failure at %s:%d/%s()!\n", __FILE__, __LINE__, __func__); \

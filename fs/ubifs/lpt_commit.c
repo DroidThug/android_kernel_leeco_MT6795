@@ -1465,8 +1465,10 @@ void ubifs_lpt_free(struct ubifs_info *c, int wr_only)
 
 	vfree(c->ltab_cmt);
 	c->ltab_cmt = NULL;
+#if 0
 	vfree(c->lpt_buf);
 	c->lpt_buf = NULL;
+#endif
 	kfree(c->lsave);
 	c->lsave = NULL;
 
