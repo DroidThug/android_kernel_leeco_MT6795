@@ -171,6 +171,7 @@ EXPORT_SYMBOL(console_set_on_cmdline);
 
 /* Flag: console code may call schedule() */
 static int console_may_schedule;
+static int do_cond_resched;
 
 /*
  * The printk log buffer consists of a chain of concatenated variable
@@ -2269,8 +2270,7 @@ void console_unlock(void)
 	 * softlockup warnings which exacerbate the issue with more
 	 * messages practically incapacitating the system.
 	 */
-	do_cond_resched = console_may_schedule;
-	console_may_schedule = 0;
+	do_cond_resched = console_may_schedule = 0;
 
 	/* flush buffered message fragment immediately to console */
 	console_cont_flush(text, sizeof(text));
