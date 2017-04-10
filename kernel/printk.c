@@ -171,7 +171,6 @@ EXPORT_SYMBOL(console_set_on_cmdline);
 
 /* Flag: console code may call schedule() */
 static int console_may_schedule;
-static int do_cond_resched;
 
 /*
  * The printk log buffer consists of a chain of concatenated variable
@@ -2270,7 +2269,7 @@ void console_unlock(void)
 	 * softlockup warnings which exacerbate the issue with more
 	 * messages practically incapacitating the system.
 	 */
-	do_cond_resched = console_may_schedule = 0;
+	console_may_schedule = 0;
 
 	/* flush buffered message fragment immediately to console */
 	console_cont_flush(text, sizeof(text));
@@ -2375,8 +2374,6 @@ skip:
 #endif
 		local_irq_restore(flags);
 
-		if (do_cond_resched)
-			cond_resched();
 	}
 	console_locked = 0;
 	mutex_release(&console_lock_dep_map, 1, _RET_IP_);
@@ -2590,8 +2587,6 @@ void register_console(struct console *newcon)
 	 */
 	for (i = 0; i < MAX_CMDLINECONSOLES && console_cmdline[i].name[0];
 			i++) {
-		BUILD_BUG_ON(sizeof(console_cmdline[i].name) !=
-			     sizeof(newcon->name));
 		if (strcmp(console_cmdline[i].name, newcon->name) != 0)
 			continue;
 		if (newcon->index >= 0 &&
