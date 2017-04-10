@@ -31,10 +31,8 @@
 #define IF_PREFIX_AUTOCONF	0x02
 
 enum {
-	INET6_IFADDR_STATE_PREDAD,
 	INET6_IFADDR_STATE_DAD,
 	INET6_IFADDR_STATE_POSTDAD,
-	INET6_IFADDR_STATE_ERRDAD,
 	INET6_IFADDR_STATE_UP,
 	INET6_IFADDR_STATE_DEAD,
 };
@@ -60,7 +58,7 @@ struct inet6_ifaddr {
 	unsigned long		cstamp;	/* created timestamp */
 	unsigned long		tstamp; /* updated timestamp */
 
-	struct delayed_work	dad_work;
+	struct timer_list	dad_timer;
 
 	struct inet6_dev	*idev;
 	struct rt6_info		*rt;
