@@ -1,0 +1,28 @@
+language: c
+
+os:
+  - linux
+
+before_install:
+  - sudo apt-get update -y
+  - sudo apt-get install libncurses5-dev
+  - sudo apt-get install git-core gnupg flex bison gperf build-essential zip curl libc6-dev libncurses5-dev:i386 x11proto-core-dev libx11-dev:i386 libreadline6-dev:i386 libgl1-mesa-glx:i386 libgl1-mesa-dev g++-multilib tofrodos python-markdown libxml2-utils xsltproc zlib1g-dev:i386
+  - sudo ln -s /usr/lib/i386-linux-gnu/mesa/libGL.so.1 /usr/lib/i386-linux-gnu/libGL.so
+  - sudo apt-get install -y ccache &&echo 'export PATH="/usr/lib/ccache:$PATH"' | tee -a ~/.bashrc &&source ~/.bashrc && echo $PATH
+  - export USE_CCACHE=1
+
+before_script:
+# Download the toolchain
+  - git clone "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9" "$HOME/android_prebuilt_toolchains"
+
+# Download the Kernel Sources
+  - git clone --depth=50 --branch=android-7.0 https://github.com/DroidThug/android_kernel_leeco_MT6795 $HOME/mt6795
+
+script:
+  - export ARCH=arm64
+  - export CROSS_COMPILE="$HOME/android_prebuilt_toolchains/bin/aarch64-linux-androidkernel-"
+  - export STRIP="$HOME/android_prebuilt_toolchains/bin/aarch64-linux-androidkernel-"
+  - cd $HOME/mt6795
+  - chmod a+x kernel.sh
+  - ./kernel.sh
+
