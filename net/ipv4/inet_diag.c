@@ -393,8 +393,6 @@ out:
 			sock_put(sk);
 	}
 out_nosk:
-*/
-
 	if (sk) {
 		if (sk->sk_state == TCP_TIME_WAIT)
 			inet_twsk_put((struct inet_timewait_sock *)sk);
